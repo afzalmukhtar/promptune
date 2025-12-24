@@ -193,15 +193,14 @@ async def optimize(
     )
 
     # Build candidates from structured response
-    candidates = []
-    for c in result.candidates:
-        candidates.append(
-            OptimizedCandidate(
-                prompt=c.prompt,
-                strategy=c.strategy,
-                addressed_weaknesses=c.addressed_weaknesses,
-            )
+    candidates = [
+        OptimizedCandidate(
+            prompt=c.prompt,
+            strategy=c.strategy,
+            addressed_weaknesses=c.addressed_weaknesses,
         )
+        for c in result.candidates
+    ]
 
     return OptimizationResult(
         candidates=candidates,

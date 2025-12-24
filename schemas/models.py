@@ -30,7 +30,6 @@ class TrainingExample(BaseModel):
 class NegativeTrainingExample(BaseModel):
     """A negative training example showing bad output and why it's bad."""
 
-    sample_prompt: str = Field(..., description="The prompt that produced the bad output")
     input: str = Field(..., description="The input given")
     bad_output: str = Field(..., description="The bad output produced")
     reason_why_bad: str = Field(..., description="Why this output is bad")

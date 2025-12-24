@@ -1,10 +1,11 @@
 """
 Promptune Configuration System.
 
-Loads configuration from YAML file with 3 LLM roles:
+Loads configuration from YAML file with a single LLM role:
 - target: The model the prompt is being tuned FOR
-- tuner: Generates improved prompt candidates (optimizers)
-- judge: Scores outputs, analyzes prompt understanding
+
+The agent itself acts as tuner (generates improved prompts) and judge
+(evaluates outputs), so no separate tuner/judge models are needed.
 
 Raises clear errors if config file is missing.
 """
@@ -28,65 +29,29 @@ EXAMPLE_CONFIG = """# Promptune Configuration
 #   OLLAMA_API_BASE=http://localhost:11434
 
 models:
-  # The model the prompt is being tuned FOR (runs the prompt + input)
+  # The model the prompt is being tuned FOR (runs the prompt + input).
+  # The agent itself acts as tuner and judge — no separate models needed.
   target: "gpt-4o-mini"
-  # Generates improved prompt candidates (all optimizers)
-  tuner: "gpt-4o"
-  # Scores outputs, analyzes prompt understanding
-  judge: "gpt-4o-mini"
 
 optimization:
-  sample_width: 3
-  max_iterations: 10
-  target_score: 0.90
-  convergence_threshold: 0.02
-  convergence_patience: 3
   batch_size: 5
-  optimizers:
-    - meta_prompt
-    - few_shot
-    - adversarial
-    - example_augmentor
-    - clarity_rewriter
 """
-
-VALID_OPTIMIZERS = {
-    "meta_prompt",
-    "few_shot",
-    "adversarial",
-    "example_augmentor",
-    "clarity_rewriter",
-}
-
 
 @dataclass
 class ModelConfig:
-    """LLM model configuration with 3 roles."""
+    """LLM model configuration — only the target model.
+
+    The agent itself acts as tuner and judge.
+    """
 
     target: str = "gpt-4o-mini"
-    tuner: str = "gpt-4o-mini"
-    judge: str = "gpt-4o-mini"
 
 
 @dataclass
 class OptimizationConfig:
     """Optimization parameters."""
 
-    sample_width: int = 3
-    max_iterations: int = 10
-    target_score: float = 0.90
-    convergence_threshold: float = 0.02
-    convergence_patience: int = 3
     batch_size: int = 5
-    optimizers: list[str] = field(
-        default_factory=lambda: [
-            "meta_prompt",
-            "few_shot",
-            "adversarial",
-            "example_augmentor",
-            "clarity_rewriter",
-        ]
-    )
 
 
 @dataclass
@@ -129,20 +94,17 @@ class PromptuneConfig:
         models_raw = data.get("models")
         if not models_raw or not isinstance(models_raw, dict):
             raise ValueError(
-                f"{source}: 'models' section is required with 'target', 'tuner', and 'judge' keys."
+                f"{source}: 'models' section is required with a 'target' key."
             )
 
-        for key in ("target", "tuner", "judge"):
-            if key not in models_raw or not models_raw[key]:
-                raise ValueError(
-                    f"{source}: 'models.{key}' is required. "
-                    f"Provide a LiteLLM model string (e.g. 'gpt-4o-mini', 'ollama/llama3.2')."
-                )
+        if "target" not in models_raw or not models_raw["target"]:
+            raise ValueError(
+                f"{source}: 'models.target' is required. "
+                f"Provide a LiteLLM model string (e.g. 'gpt-4o-mini', 'ollama/llama3.2')."
+            )
 
         model_config = ModelConfig(
             target=str(models_raw["target"]),
-            tuner=str(models_raw["tuner"]),
-            judge=str(models_raw["judge"]),
         )
 
         # --- Optimization ---
@@ -150,29 +112,8 @@ class PromptuneConfig:
         if not isinstance(opt_raw, dict):
             opt_raw = {}
 
-        default_optimizers = [
-            "meta_prompt",
-            "few_shot",
-            "adversarial",
-            "example_augmentor",
-            "clarity_rewriter",
-        ]
-        optimizers = opt_raw.get("optimizers", default_optimizers)
-        if isinstance(optimizers, list):
-            invalid = set(optimizers) - VALID_OPTIMIZERS
-            if invalid:
-                raise ValueError(
-                    f"{source}: Invalid optimizer(s): {invalid}. Valid options: {VALID_OPTIMIZERS}"
-                )
-
         opt_config = OptimizationConfig(
-            sample_width=opt_raw.get("sample_width", 3),
-            max_iterations=opt_raw.get("max_iterations", 10),
-            target_score=opt_raw.get("target_score", 0.90),
-            convergence_threshold=opt_raw.get("convergence_threshold", 0.02),
-            convergence_patience=opt_raw.get("convergence_patience", 3),
             batch_size=opt_raw.get("batch_size", 5),
-            optimizers=optimizers if isinstance(optimizers, list) else list(optimizers),
         )
 
         return cls(models=model_config, optimization=opt_config)
@@ -181,20 +122,16 @@ class PromptuneConfig:
     def from_params(
         cls,
         target_model: str,
-        tuner_model: str,
-        judge_model: str,
         **optimization_kwargs,
     ) -> "PromptuneConfig":
         """Create config programmatically (for agent/skill usage).
 
         Args:
             target_model: LiteLLM model string for the target.
-            tuner_model: LiteLLM model string for the tuner.
-            judge_model: LiteLLM model string for the judge.
             **optimization_kwargs: Override any OptimizationConfig fields.
         """
         return cls(
-            models=ModelConfig(target=target_model, tuner=tuner_model, judge=judge_model),
+            models=ModelConfig(target=target_model),
             optimization=OptimizationConfig(
                 **{
                     k: v

@@ -1,186 +1,43 @@
 """
-Prompt Evaluator with Empirical Output Testing.
+Prompt Test Runner.
 
-Key principle: Actually TEST the prompt against examples, don't just guess.
-
-Evaluation combines:
-1. Empirical testing - Run prompt, compare output to expected
-2. Structural analysis - Check for required components
-3. Adversarial critique - Find hidden weaknesses
-4. Prompt understanding - Analyze which sections the LLM followed/ignored
+Runs a prompt against training examples using the target model and returns
+raw outputs for the agent to judge. The agent itself acts as both tuner
+and judge — this module only handles target model execution.
 
 Supports custom evaluation targets (black-box systems) via EvaluationTarget protocol.
-Uses separate target/judge models from PromptuneConfig.
 """
 
 import asyncio
 import hashlib
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mcp_servers.utils.llm import call_llm_plain, call_llm_structured
-from schemas import (
-    AdversarialAnalysis,
-    EvaluationResult,
-    NegativeOutputComparison,
-    NegativeTrainingExample,
-    OutputComparison,
-    PromptUnderstanding,
-    PromptUnderstandingResponse,
-    StructuralAnalysis,
-    TrainingExample,
-)
+from mcp_servers.utils.llm import call_llm_plain
 
 if TYPE_CHECKING:
     from mcp_servers.targets.base import EvaluationTarget
     from mcp_servers.utils.config import PromptuneConfig
 
 
-# =============================================================================
-# SCORING WEIGHTS (all scoring done in code)
-# =============================================================================
-
-WEIGHTS = {
-    "empirical": 0.50,  # 50% - actual output quality (the most important!)
-    "structural": 0.30,  # 30% - prompt structure
-    "adversarial": 0.20,  # 20% - robustness concerns
-}
-
-
-# =============================================================================
-# LLM PROMPTS
-# =============================================================================
-
-OUTPUT_COMPARISON_PROMPT = """Compare the ACTUAL output to the EXPECTED output for correctness.
-
-## TASK INPUT:
-{task_input}
-
-## EXPECTED OUTPUT:
-{expected_output}
-
-## ACTUAL OUTPUT:
-{actual_output}
-
-## EVALUATION:
-Answer these questions:
-
-1. semantic_match: Does the actual output convey the same meaning/accomplish the same goal as expected? (true/false)
-2. format_match: Is the format similar (e.g., both code, both prose, similar structure)? (true/false)
-3. correctness: Is the actual output factually/functionally correct for the task? (true/false)
-4. completeness: Does the actual output fully address the task (not partial)? (true/false)"""
-
-
-NEGATIVE_COMPARISON_PROMPT = """Compare the ACTUAL output to a known BAD output. Determine if the actual output repeats the same mistakes.
-
-## TASK INPUT:
-{task_input}
-
-## KNOWN BAD OUTPUT:
-{bad_output}
-
-## REASON WHY BAD:
-{reason_why_bad}
-
-## ACTUAL OUTPUT:
-{actual_output}
-
-## EVALUATION:
-Answer these questions:
-
-1. matches_bad_output: Is the actual output semantically similar to the known bad output? (true/false)
-2. matches_bad_pattern: Does the actual output exhibit the failure described in "reason why bad"? (true/false)
-3. same_tone: Does the actual output have the same problematic tone/style as the bad output? (true/false)
-4. same_mistakes: Does the actual output repeat the same specific mistakes as the bad output? (true/false)"""
-
-
-STRUCTURAL_ANALYSIS_PROMPT = """Analyze this prompt's structure. Answer ONLY with true/false for each question.
-
-## PROMPT:
-{prompt}
-
-## STRUCTURAL CHECKS:
-1. has_role: Does it define WHO the AI should be? (true/false)
-2. has_task: Does it explain WHAT to do? (true/false)
-3. has_format: Does it specify HOW to format output? (true/false)
-4. has_constraints: Does it set boundaries or rules? (true/false)
-5. has_examples: Does it include examples? (true/false)"""
-
-
-ADVERSARIAL_ANALYSIS_PROMPT = """You are a harsh critic. Find problems with this prompt.
-
-## PROMPT:
-{prompt}
-
-## YOUR TASK:
-1. List 2-3 specific weaknesses (be concrete, cite issues)
-2. List 2-3 actionable suggestions (specific fixes)
-3. Give a 1-sentence harsh but fair assessment"""
-
-
-PROMPT_UNDERSTANDING_PROMPT = """Analyze how well the LLM followed the given prompt instructions.
-
-## PROMPT THAT WAS GIVEN:
-{prompt}
-
-## TASK INPUT:
-{task_input}
-
-## ACTUAL LLM OUTPUT:
-{actual_output}
-
-## YOUR TASK:
-For each instruction/section in the prompt, determine:
-1. Was it well followed? What evidence shows this?
-2. Was it poorly followed or ignored? Why?
-
-Return sections that were well followed and sections that were poorly followed.
-Each section should have: the section text, evidence from the output, a score (0-1), and reason if poorly followed.
-Also give an overall compliance score (0-1)."""
-
-
 @dataclass
-class EmpiricalResult:
-    """Result of testing prompt against one example."""
+class TestResult:
+    """Result of running a prompt against one example."""
 
     input: str
-    expected: str
-    actual: str
-    semantic_match: bool = False
-    format_match: bool = False
-    correctness: bool = False
-    completeness: bool = False
-    score: int = 0  # 0-100
+    expected_output: str
+    actual_output: str
 
 
 @dataclass
-class EvaluationDetails:
-    """Detailed breakdown of evaluation."""
+class NegativeTestResult:
+    """Result of running a prompt against one negative example."""
 
-    empirical_score: int = 0
-    structural_score: int = 0
-    adversarial_score: int = 0
-    empirical_results: list[EmpiricalResult] = field(default_factory=list)
-    structural_checks: dict = field(default_factory=dict)
-    weaknesses: list[str] = field(default_factory=list)
-    suggestions: list[str] = field(default_factory=list)
-    assessment: str = ""
-
-
-def format_examples(examples: list[TrainingExample], max_examples: int = 5) -> str:
-    """Format training examples for display."""
-    if not examples:
-        return "No training examples provided."
-    formatted = []
-    for i, ex in enumerate(examples[:max_examples], 1):
-        formatted.append(f"Example {i}:")
-        formatted.append(f"  Input: {ex.input}")
-        formatted.append(f"  Expected Output: {ex.expected_output}")
-        formatted.append("")
-    if len(examples) > max_examples:
-        formatted.append(f"... and {len(examples) - max_examples} more examples")
-    return "\n".join(formatted)
+    input: str
+    bad_output: str
+    reason_why_bad: str
+    actual_output: str
 
 
 async def _generate_output(
@@ -205,475 +62,89 @@ async def _generate_output(
     )
 
 
-async def _test_single_example(
+async def run_prompt_tests(
     prompt: str,
-    example: TrainingExample,
-    target_model: str,
-    judge_model: str,
-    target: "EvaluationTarget | None" = None,
-) -> EmpiricalResult:
-    """Test prompt against a single example and compare output."""
-    actual_output = await _generate_output(prompt, example.input, target_model, target)
-
-    comparison_prompt = OUTPUT_COMPARISON_PROMPT.format(
-        task_input=example.input,
-        expected_output=example.expected_output,
-        actual_output=actual_output,
-    )
-    comparison = await call_llm_structured(
-        model=judge_model,
-        messages=[{"role": "user", "content": comparison_prompt}],
-        response_model=OutputComparison,
-        temperature=0.0,
-    )
-
-    score = (
-        (25 if comparison.semantic_match else 0)
-        + (25 if comparison.format_match else 0)
-        + (25 if comparison.correctness else 0)
-        + (25 if comparison.completeness else 0)
-    )
-
-    return EmpiricalResult(
-        input=example.input,
-        expected=example.expected_output,
-        actual=actual_output,
-        semantic_match=comparison.semantic_match,
-        format_match=comparison.format_match,
-        correctness=comparison.correctness,
-        completeness=comparison.completeness,
-        score=score,
-    )
-
-
-async def _run_empirical_tests(
-    prompt: str,
-    examples: list[TrainingExample],
-    target_model: str,
-    judge_model: str,
-    batch_size: int = 5,
-    iteration: int | None = None,
-    target: "EvaluationTarget | None" = None,
-) -> tuple[int, list[EmpiricalResult]]:
-    """Run prompt against examples and score output quality.
-
-    Uses random batch sampling: each iteration gets a different random subset.
-    The seed combines iteration and a prompt hash so different prompts get
-    different batches within the same iteration.
-    """
-    if not examples:
-        return 50, []  # Neutral score if no examples
-
-    # Random batch sampling
-    if len(examples) <= batch_size:
-        test_examples = examples
-    else:
-        prompt_hash = int(hashlib.md5(prompt.encode()).hexdigest(), 16) % 10000
-        seed = (iteration if iteration is not None else 42) + prompt_hash
-        rng = random.Random(seed)
-        test_examples = rng.sample(examples, batch_size)
-
-    tasks = [
-        _test_single_example(prompt, ex, target_model, judge_model, target) for ex in test_examples
-    ]
-    results = await asyncio.gather(*tasks)
-
-    avg_score = round(sum(r.score for r in results) / len(results)) if results else 0
-    return avg_score, results
-
-
-async def _test_single_negative_example(
-    prompt: str,
-    example: NegativeTrainingExample,
-    target_model: str,
-    judge_model: str,
-    target: "EvaluationTarget | None" = None,
-) -> EmpiricalResult:
-    """Test prompt against a negative example — reverse score (match to bad = low)."""
-    actual_output = await _generate_output(prompt, example.input, target_model, target)
-
-    comparison_prompt = NEGATIVE_COMPARISON_PROMPT.format(
-        task_input=example.input,
-        bad_output=example.bad_output,
-        reason_why_bad=example.reason_why_bad,
-        actual_output=actual_output,
-    )
-    comparison = await call_llm_structured(
-        model=judge_model,
-        messages=[{"role": "user", "content": comparison_prompt}],
-        response_model=NegativeOutputComparison,
-        temperature=0.0,
-    )
-
-    # Reverse scoring: each match to bad = 25 pts penalty
-    bad_match_score = (
-        (25 if comparison.matches_bad_output else 0)
-        + (25 if comparison.matches_bad_pattern else 0)
-        + (25 if comparison.same_tone else 0)
-        + (25 if comparison.same_mistakes else 0)
-    )
-    score = 100 - bad_match_score  # Invert: 100 = fully avoids bad, 0 = matches bad
-
-    return EmpiricalResult(
-        input=example.input,
-        expected=f"[AVOID] {example.bad_output}",
-        actual=actual_output,
-        semantic_match=not comparison.matches_bad_output,
-        format_match=not comparison.same_tone,
-        correctness=not comparison.matches_bad_pattern,
-        completeness=not comparison.same_mistakes,
-        score=score,
-    )
-
-
-async def _run_negative_empirical_tests(
-    prompt: str,
-    negative_examples: list[NegativeTrainingExample],
-    target_model: str,
-    judge_model: str,
-    batch_size: int = 5,
-    iteration: int | None = None,
-    target: "EvaluationTarget | None" = None,
-) -> tuple[int, list[EmpiricalResult]]:
-    """Run prompt against negative examples — reverse scoring.
-
-    High score = output avoids the known bad patterns.
-    Low score = output matches the known bad patterns.
-    """
-    if not negative_examples:
-        return 50, []
-
-    # Random batch sampling (same approach as positive)
-    if len(negative_examples) <= batch_size:
-        test_examples = negative_examples
-    else:
-        prompt_hash = int(hashlib.md5(prompt.encode()).hexdigest(), 16) % 10000
-        seed = (iteration if iteration is not None else 42) + prompt_hash
-        rng = random.Random(seed)
-        test_examples = rng.sample(negative_examples, batch_size)
-
-    tasks = [
-        _test_single_negative_example(prompt, ex, target_model, judge_model, target)
-        for ex in test_examples
-    ]
-    results = await asyncio.gather(*tasks)
-
-    avg_score = round(sum(r.score for r in results) / len(results)) if results else 0
-    return avg_score, results
-
-
-async def _run_structural_analysis(
-    prompt: str,
-    judge_model: str,
-) -> tuple[int, dict]:
-    """Analyze prompt structure using structured tool calling."""
-    result = await call_llm_structured(
-        model=judge_model,
-        messages=[{"role": "user", "content": STRUCTURAL_ANALYSIS_PROMPT.format(prompt=prompt)}],
-        response_model=StructuralAnalysis,
-        temperature=0.0,
-    )
-
-    checks = {
-        "has_role": result.has_role,
-        "has_task": result.has_task,
-        "has_format": result.has_format,
-        "has_constraints": result.has_constraints,
-        "has_examples": result.has_examples,
-    }
-    score = sum(20 for v in checks.values() if v)
-    return score, checks
-
-
-async def _run_adversarial_analysis(
-    prompt: str,
-    judge_model: str,
-) -> tuple[int, AdversarialAnalysis]:
-    """Run adversarial critique using structured tool calling."""
-    result = await call_llm_structured(
-        model=judge_model,
-        messages=[{"role": "user", "content": ADVERSARIAL_ANALYSIS_PROMPT.format(prompt=prompt)}],
-        response_model=AdversarialAnalysis,
-        temperature=0.0,
-    )
-
-    weakness_count = len(result.weaknesses)
-    if weakness_count == 0:
-        score = 100
-    elif weakness_count == 1:
-        score = 75
-    elif weakness_count == 2:
-        score = 50
-    else:
-        score = 25
-
-    return score, result
-
-
-async def _analyze_prompt_understanding(
-    prompt: str,
-    empirical_results: list[EmpiricalResult],
-    judge_model: str,
-) -> PromptUnderstanding | None:
-    """Analyze which parts of the prompt the LLM understood and followed.
-
-    Uses the judge model to compare prompt instructions vs actual outputs.
-    """
-    if not empirical_results:
-        return None
-
-    # Use the first few empirical results for analysis
-    analysis_results = empirical_results[:3]
-
-    # Build context from empirical results
-    examples_context = ""
-    for i, r in enumerate(analysis_results, 1):
-        examples_context += f"\n--- Example {i} ---\nInput: {r.input}\nActual Output: {r.actual}\n"
-
-    understanding_prompt = PROMPT_UNDERSTANDING_PROMPT.format(
-        prompt=prompt,
-        task_input=examples_context,
-        actual_output="(See outputs above for each example)",
-    )
-
-    try:
-        raw = await call_llm_structured(
-            model=judge_model,
-            messages=[{"role": "user", "content": understanding_prompt}],
-            response_model=PromptUnderstandingResponse,
-            temperature=0.0,
-        )
-
-        # Convert typed response to PromptUnderstanding
-        return PromptUnderstanding(
-            well_followed=raw.well_followed,
-            poorly_followed=raw.poorly_followed,
-            overall_compliance=raw.overall_compliance,
-        )
-    except Exception:
-        # Prompt understanding is optional — don't fail the whole evaluation
-        return None
-
-
-async def evaluate_prompt(
-    prompt: str,
-    training_examples: list[TrainingExample],
+    training_examples: list | None = None,
+    negative_examples: list | None = None,
     config: "PromptuneConfig | None" = None,
     target_model: str | None = None,
-    judge_model: str | None = None,
-    pass_threshold: int = 70,
-    target: "EvaluationTarget | None" = None,
     batch_size: int | None = None,
-    iteration: int | None = None,
-    negative_examples: list[NegativeTrainingExample] | None = None,
-) -> EvaluationResult:
+    target: "EvaluationTarget | None" = None,
+) -> dict:
     """
-    Evaluate a prompt using empirical testing + structural analysis.
+    Run a prompt against training examples and return raw outputs.
 
-    Key innovation: Actually RUN the prompt against examples and compare
-    outputs, rather than just guessing if it would work.
-
-    Scoring (standard mode — positive examples available):
-    - 50% Empirical (actual output quality)
-    - 30% Structural (prompt components)
-    - 20% Adversarial (robustness)
-
-    Scoring (negative-only mode — only negative examples):
-    - 50% Reverse Empirical (output avoids known bad patterns)
-    - 30% Structural (prompt components)
-    - 20% Adversarial (robustness)
+    The agent judges the results — this function only runs the target model.
 
     Args:
-        prompt: The prompt text to evaluate
-        training_examples: Positive training examples to test against
-        config: PromptuneConfig with model settings
+        prompt: The prompt text to test
+        training_examples: Positive examples with input + expected_output
+        negative_examples: Negative examples with input + bad_output + reason_why_bad
+        config: PromptuneConfig with target model setting
         target_model: Override target model (or from config)
-        judge_model: Override judge model (or from config)
-        pass_threshold: Score threshold to pass (default: 70)
-        target: Optional custom evaluation target (black-box system).
-                If provided, uses target.invoke(prompt, input) instead of target_model.
-        batch_size: Number of examples to randomly sample per evaluation
-        iteration: Current iteration number (used as seed for random sampling)
-        negative_examples: Optional negative examples for reverse empirical scoring
+        batch_size: Number of examples to randomly sample per run
+        target: Optional custom evaluation target (black-box system)
 
     Returns:
-        EvaluationResult with empirically-grounded scores
+        Dict with positive_results and negative_results containing raw outputs
     """
-    # Resolve models from config or explicit params
     if config:
         target_model = target_model or config.models.target
-        judge_model = judge_model or config.models.judge
         batch_size = batch_size if batch_size is not None else config.optimization.batch_size
     batch_size = batch_size or 5
 
-    if not target_model or not judge_model:
+    if not target_model:
         raise ValueError(
-            "Models not configured. Provide a PromptuneConfig or explicit target_model/judge_model."
+            "Target model not configured. Provide a PromptuneConfig or explicit target_model."
         )
 
-    # Determine mode: positive-only, negative-only, or mixed
-    has_positive = bool(training_examples)
-    has_negative = bool(negative_examples)
+    positive_results: list[TestResult] = []
+    negative_results: list[NegativeTestResult] = []
 
-    # Always run structural + adversarial
-    structural_task = _run_structural_analysis(prompt, judge_model)
-    adversarial_task = _run_adversarial_analysis(prompt, judge_model)
+    # Run positive examples
+    if training_examples:
+        test_examples = training_examples
+        if len(training_examples) > batch_size:
+            prompt_hash = int(hashlib.md5(prompt.encode()).hexdigest(), 16) % 10000
+            rng = random.Random(42 + prompt_hash)
+            test_examples = rng.sample(training_examples, batch_size)
 
-    if has_positive and has_negative:
-        # Mixed mode: run positive + negative empirical in parallel, average for combined score
-        pos_task = _run_empirical_tests(
-            prompt,
-            training_examples,
-            target_model,
-            judge_model,
-            batch_size=batch_size,
-            iteration=iteration,
-            target=target,
-        )
-        neg_task = _run_negative_empirical_tests(
-            prompt,
-            negative_examples or [],
-            target_model,
-            judge_model,
-            batch_size=batch_size,
-            iteration=iteration,
-            target=target,
-        )
-        (
-            (pos_score, pos_results),
-            (neg_score, neg_results),
-            (structural_score, structural_checks),
-            (adversarial_score, adversarial_data),
-        ) = await asyncio.gather(pos_task, neg_task, structural_task, adversarial_task)
+        tasks = [
+            _generate_output(prompt, ex.input, target_model, target)
+            for ex in test_examples
+        ]
+        outputs = await asyncio.gather(*tasks)
 
-        empirical_score = round((pos_score + neg_score) / 2)
-        empirical_results = pos_results + neg_results
-        empirical_detail = (
-            f"Combined Empirical (50%): {empirical_score}/100 "
-            f"— Positive: {pos_score}/100 ({len(pos_results)} examples), "
-            f"Negative: {neg_score}/100 ({len(neg_results)} examples)"
-        )
+        for ex, output in zip(test_examples, outputs):
+            positive_results.append(TestResult(
+                input=ex.input,
+                expected_output=ex.expected_output,
+                actual_output=output,
+            ))
 
-    elif has_negative:
-        # Negative-only mode: reverse empirical replaces positive empirical
-        neg_task = _run_negative_empirical_tests(
-            prompt,
-            negative_examples or [],
-            target_model,
-            judge_model,
-            batch_size=batch_size,
-            iteration=iteration,
-            target=target,
-        )
-        (
-            (empirical_score, empirical_results),
-            (structural_score, structural_checks),
-            (adversarial_score, adversarial_data),
-        ) = await asyncio.gather(neg_task, structural_task, adversarial_task)
+    # Run negative examples
+    if negative_examples:
+        test_neg_examples = negative_examples
+        if len(negative_examples) > batch_size:
+            prompt_hash = int(hashlib.md5(prompt.encode()).hexdigest(), 16) % 10000
+            rng = random.Random(42 + prompt_hash)
+            test_neg_examples = rng.sample(negative_examples, batch_size)
 
-        empirical_detail = f"Reverse Empirical (50%): {empirical_score}/100 - Tested against {len(empirical_results)} negative examples"
+        tasks = [
+            _generate_output(prompt, ex.input, target_model, target)
+            for ex in test_neg_examples
+        ]
+        outputs = await asyncio.gather(*tasks)
 
-    elif has_positive:
-        # Standard mode: positive empirical only
-        pos_task = _run_empirical_tests(
-            prompt,
-            training_examples,
-            target_model,
-            judge_model,
-            batch_size=batch_size,
-            iteration=iteration,
-            target=target,
-        )
-        (
-            (empirical_score, empirical_results),
-            (structural_score, structural_checks),
-            (adversarial_score, adversarial_data),
-        ) = await asyncio.gather(pos_task, structural_task, adversarial_task)
+        for ex, output in zip(test_neg_examples, outputs):
+            negative_results.append(NegativeTestResult(
+                input=ex.input,
+                bad_output=ex.bad_output,
+                reason_why_bad=ex.reason_why_bad,
+                actual_output=output,
+            ))
 
-        empirical_detail = f"Empirical (50%): {empirical_score}/100 - Tested against {len(empirical_results)} examples"
-
-    else:
-        # No examples at all
-        (
-            (structural_score, structural_checks),
-            (adversarial_score, adversarial_data),
-        ) = await asyncio.gather(structural_task, adversarial_task)
-
-        empirical_score = 50
-        empirical_results: list[EmpiricalResult] = []
-        empirical_detail = "Empirical (50%): 50/100 - No examples provided"
-
-    # Run prompt understanding analysis (after empirical, uses results)
-    prompt_understanding = await _analyze_prompt_understanding(
-        prompt, empirical_results, judge_model
-    )
-
-    # Compute final score (same weights for all modes)
-    final_score = int(
-        empirical_score * WEIGHTS["empirical"]
-        + structural_score * WEIGHTS["structural"]
-        + adversarial_score * WEIGHTS["adversarial"]
-    )
-
-    # Build feedback
-    feedback_lines = [
-        f"Score: {final_score}/100",
-        "",
-        empirical_detail,
-        f"Structural (30%): {structural_score}/100 - {sum(structural_checks.values())}/5 checks passed",
-        f"Adversarial (20%): {adversarial_score}/100 - {len(adversarial_data.weaknesses)} weaknesses found",
-        "",
-    ]
-
-    # Add empirical details
-    if empirical_results:
-        label = (
-            "Negative Example Results:"
-            if (has_negative and not has_positive)
-            else "Example Results:"
-        )
-        feedback_lines.append(label)
-        for i, r in enumerate(empirical_results, 1):
-            status = "✓" if r.score >= 75 else "✗"
-            feedback_lines.append(f"  {status} Example {i}: {r.score}/100")
-        feedback_lines.append("")
-
-    # Add assessment
-    if adversarial_data.assessment:
-        feedback_lines.append(f"Assessment: {adversarial_data.assessment}")
-
-    # Add prompt understanding summary
-    if prompt_understanding:
-        feedback_lines.append("")
-        feedback_lines.append(f"Prompt Compliance: {prompt_understanding.overall_compliance:.0%}")
-        if prompt_understanding.poorly_followed:
-            feedback_lines.append("Poorly followed sections:")
-            for section in prompt_understanding.poorly_followed[:3]:
-                feedback_lines.append(f"  - {section.section}: {section.reason}")
-
-    # Collect weaknesses
-    weaknesses = []
-    for check, passed in structural_checks.items():
-        if not passed:
-            weaknesses.append(f"Missing: {check.replace('_', ' ')}")
-    weaknesses.extend(adversarial_data.weaknesses)
-
-    # Collect strengths from passed checks
-    strengths = []
-    for check, passed in structural_checks.items():
-        if passed:
-            strengths.append(f"Has {check.replace('_', ' ')}")
-
-    return EvaluationResult(
-        prompt=prompt,
-        score=final_score / 100,
-        passed=final_score >= pass_threshold,
-        feedback="\n".join(feedback_lines),
-        strengths=strengths[:5],
-        weaknesses=weaknesses[:5],
-        suggestions=adversarial_data.suggestions,
-        clarity_score=structural_score / 100,
-        task_alignment_score=empirical_score / 100,
-        example_quality_score=adversarial_score / 100,
-        prompt_understanding=prompt_understanding,
-    )
+    return {
+        "positive_results": positive_results,
+        "negative_results": negative_results,
+    }
