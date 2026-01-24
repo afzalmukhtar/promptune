@@ -1,6 +1,6 @@
 ---
 name: promptune
-description: Automated prompt optimization where YOU (the agent) act as both tuner and judge. Use the run_prompt_tests MCP tool to test prompts against the target model, then evaluate results and generate improved prompts yourself.
+description: Automated prompt optimization where YOU (the agent) act as both tuner and judge. Use the run_prompt_tests tool to test prompts and MCP prompts to guide your judging and optimization.
 ---
 
 # Promptune — Prompt Optimization Skill
@@ -9,22 +9,34 @@ description: Automated prompt optimization where YOU (the agent) act as both tun
 
 Promptune optimizes LLM system prompts by testing them against training examples on the **target model**. You (the agent) drive the entire process:
 
-- **You are the Judge** — You analyze the target model's outputs and decide how well they match expectations.
-- **You are the Tuner** — You generate improved prompt candidates based on your analysis.
-- **The MCP tool runs the target model** — `run_prompt_tests` is the only tool. It runs a prompt against examples on the target model and returns raw outputs for you to judge.
+- **You are the Judge** — Use the `judge_results` prompt to analyze outputs and score them.
+- **You are the Tuner** — Use the 4 optimization prompts to generate improved candidates **in parallel**.
+- **The MCP tool runs the target model** — `run_prompt_tests` returns raw outputs for you to judge.
 
-## MCP Tool
+## MCP Resources
+
+### Tool
 
 | Tool | Purpose |
 |------|---------|
-| `run_prompt_tests` | Run a prompt against training examples on the target model. Returns raw `{input, expected_output, actual_output}` for you to judge. |
+| `run_prompt_tests` | Run a prompt against training examples on the target model. Returns raw `{input, expected_output, actual_output}`. |
+
+### Prompts
+
+| Prompt | Purpose |
+|--------|---------|
+| `judge_results` | Score and analyze test results. Produces a scoring report with strengths, weaknesses, suggestions. |
+| `feedback_rewrite` | Rewrite a prompt based on scoring feedback. Fixes weaknesses, preserves strengths. |
+| `example_augmentation` | Inject few-shot examples and DO/DON'T sections from training data. |
+| `adversarial_hardening` | Harden a prompt against edge cases, failure patterns, and adversarial inputs. |
+| `clarity_rewrite` | Fix ambiguous, vague, or unclear instructions with precise specifications. |
 
 ## Agent Workflow
 
-### Step 0: Setup Environment
+### Step 1: Setup Environment
 
 1. Check that `.env` exists with the correct API key for the target model provider.
-2. Configure `promptune.yaml` with ONLY the target model:
+2. Configure `promptune.yaml`:
 
 ```yaml
 models:
@@ -34,155 +46,92 @@ optimization:
   batch_size: 5  # Examples to sample per test run
 ```
 
-### Step 1: Find the Prompt
+### Step 2: Find the Prompt
 
 Locate the system prompt string in the codebase. Note the file, variable, and what the LLM feature does.
 
-### Step 2: Prepare Training Data
+### Step 3: Prepare Training Data
 
-Create a JSON dataset in `datasets/<feature>.json` with 5-20 examples.
+Create a JSON dataset in `datasets/<feature>.json` with 5-20 examples and save it.
 
-**Positive examples** (input + expected output):
-```json
-[
-  {"input": "Write hello world in Python", "expected_output": "print('Hello, World!')"},
-  {"input": "Reverse the string 'hello'", "expected_output": "'olleh'"}
-]
-```
+**Positive**: `[{"input": "...", "expected_output": "..."}]`
+**Negative**: `[{"input": "...", "bad_output": "...", "reason_why_bad": "..."}]`
+**Mixed**: `{"examples": [...], "negative_examples": [...]}`
 
-**Negative examples** (input + bad output + reason):
-```json
-[
-  {"input": "Summarize this article", "bad_output": "I don't know", "reason_why_bad": "Refused to attempt the task"},
-  {"input": "Write a poem", "bad_output": "Here is a poem:\nRoses are red...", "reason_why_bad": "Too generic, no creativity"}
-]
-```
+### Step 4: Run Baseline & Score (Initial Scoring)
 
-**Mixed** (both in one file):
-```json
-{
-  "examples": [{"input": "...", "expected_output": "..."}],
-  "negative_examples": [{"input": "...", "bad_output": "...", "reason_why_bad": "..."}]
-}
-```
+1. Call `run_prompt_tests` with the original prompt and training data.
+2. Use the `judge_results` prompt to score the results.
+3. **Save the original prompt + scoring report** to a markdown file (e.g., `optimization_log.md`) for tracking.
 
-### Step 3: Test the Current Prompt (Baseline)
+### Step 5: Optimize in Parallel
 
-Call `run_prompt_tests` to see how the current prompt performs:
+Apply **all chosen optimizers simultaneously** on the **original prompt** (not sequentially):
 
-```json
-{
-  "prompt": "You are a coding assistant.",
-  "training_examples": [
-    {"input": "Write hello world", "expected_output": "print('Hello, World!')"}
-  ]
-}
-```
+1. Choose which optimizers to apply (1 or more of the 4 strategies).
+2. Run each optimizer **in parallel** using the corresponding MCP prompt:
+   - `feedback_rewrite` — with the scoring report from Step 4
+   - `example_augmentation` — with training examples
+   - `adversarial_hardening` — with scoring report + failure patterns from judging
+   - `clarity_rewrite` — with scoring report
+3. Each optimizer produces one candidate prompt independently from the original.
 
-Returns raw results:
-```json
-{
-  "positive_results": [
-    {"input": "Write hello world", "expected_output": "print('Hello, World!')", "actual_output": "..."}
-  ],
-  "negative_results": []
-}
-```
+**If possible, run parallel sub-agents for each candidate** to speed up the process.
 
-### Step 4: Judge the Results (You Are the Judge)
+### Step 6: Test & Score All Candidates
 
-Analyze each test result yourself using this rubric:
+1. Call `run_prompt_tests` for **each** candidate prompt (in parallel if possible).
+2. Use `judge_results` to score each candidate's results.
+3. For each candidate, note:
+   - **Score** (0-100)
+   - **Strengths** (what improved vs original)
+   - **Weaknesses** (what's still broken)
+   - **Failure patterns** (specific inputs that failed)
 
-**For positive examples**, compare `actual_output` vs `expected_output`:
-1. **Semantic match** — Does the actual output accomplish the same goal?
-2. **Format match** — Is the format similar (code vs prose, structure)?
-3. **Correctness** — Is the output factually/functionally correct?
-4. **Completeness** — Does it fully address the task?
+### Step 7: Select Candidates & Iterate
 
-**For negative examples**, compare `actual_output` vs `bad_output`:
-1. **Avoids bad pattern** — Does the output avoid the failure described in `reason_why_bad`?
-2. **Different from bad** — Is it meaningfully different from the known bad output?
-3. **Better quality** — Is it actually a good response, not just differently bad?
+**Candidate selection** (top-2n random sampling):
+1. Let `n` = number of candidates you want to keep (typically 2-3).
+2. Take the **top 2×n** candidates by score.
+3. **Randomly select n** from those top 2×n (adds diversity, prevents local optima).
 
-**Structural analysis** of the prompt itself:
-- Does it define a **role** (who the AI is)?
-- Does it specify the **task** (what to do)?
-- Does it describe the **format** (how to structure output)?
-- Does it set **constraints** (rules and boundaries)?
-- Does it include **examples** (input/output pairs)?
+**Next iteration:**
+1. For each selected candidate, **inject the good and bad findings** from Step 6 into the optimization context.
+2. Run **all chosen optimizers again in parallel** on each candidate — this time using the enriched feedback.
+3. Test and score the new candidates (Step 6).
+4. Repeat selection (Step 7).
 
-Synthesize your analysis into:
-- **Score** (0-100): Overall quality assessment
-- **Strengths**: What the prompt does well
-- **Weaknesses**: What needs fixing
-- **Suggestions**: Specific, actionable improvements
-
-### Step 5: Generate Improved Prompts (You Are the Tuner)
-
-Based on your analysis, generate 1-3 improved prompt candidates. Apply these optimization strategies:
-
-#### Strategy 1: Feedback-Driven Rewriting
-- Fix every weakness you identified
-- Implement every suggestion
-- Keep all strengths intact
-- Make the prompt more detailed and explicit
-
-#### Strategy 2: Few-Shot Example Injection
-- Select the most relevant training examples
-- Embed them directly in the prompt as input/output demonstrations
-- Balance relevance, diversity, and complexity
-
-#### Strategy 3: Adversarial Hardening
-- Identify edge cases the prompt doesn't handle
-- Add explicit constraints for those cases
-- Add "DO NOT" rules for known failure patterns
-- If negative examples exist, add a "What BAD output looks like — AVOID" section
-
-#### Strategy 4: DO/DON'T Augmentation
-- Add a "What GOOD output looks like" section with positive examples
-- Add a "What BAD output looks like — AVOID" section with negative examples and reasons
-- Naturally integrate examples, don't just append
-
-#### Strategy 5: Clarity Rewriting
-- Find ambiguous or vague instructions
-- Replace vague quantifiers ("some", "a few") with specifics
-- Add missing details (format specs, edge cases, boundaries)
-
-**Prompt structure checklist** — include all relevant sections:
-```
-[ROLE] - Who the AI is
-[TASK] - What to do, step by step
-[FORMAT] - Exact output format expected
-[CONSTRAINTS] - Rules, limitations, boundaries
-[EXAMPLES] - At least one input/output example
-[ERROR HANDLING] - What to do when things go wrong
-```
-
-### Step 6: Test Improved Prompts
-
-Call `run_prompt_tests` with each improved prompt candidate. Judge the results using the same rubric from Step 4.
-
-### Step 7: Select Best & Iterate
-
-Compare scores across all candidates (original + improved). Pick the best one.
-
-**If satisfied**: Present the best prompt and score to the user. Highlight what changed. Once approved, update the codebase.
-
-**If not satisfied**: Take the best candidate as your new starting point and repeat from Step 4. Common iteration strategies:
-- Add more training examples targeting specific failure cases
-- Try a different optimization strategy
-- Combine strengths from multiple candidates
-- Focus on the weakest area (structural, empirical, etc.)
-
-**Convergence heuristics** — stop iterating when:
+**Convergence** — stop iterating when:
 - Score is above 85-90%
 - No meaningful improvement for 2-3 rounds
-- The user is satisfied with the results
+- The user is satisfied
+
+### Step 8: Review & Replace
+
+1. Present the **best prompt** and its score to the user.
+2. Show a **diff** vs the original prompt — what changed and why.
+3. Show the **score improvement** trajectory.
+4. Once approved, update the prompt in the codebase.
+
+## Optimization Strategies (The 4 Optimizers)
+
+### 1. Feedback-Driven Rewriting (`feedback_rewrite`)
+The primary optimizer. Takes the scoring report and rewrites the prompt to fix every weakness while preserving strengths. Best for: general improvement, fixing specific failures.
+
+### 2. Example Augmentation (`example_augmentation`)
+Injects few-shot examples and DO/DON'T sections from training data. Selects diverse, representative examples. Best for: tasks where the model needs concrete demonstrations.
+
+### 3. Adversarial Hardening (`adversarial_hardening`)
+Hardens the prompt against edge cases and failure patterns. Adds guardrails, constraints, and explicit error handling. Best for: production prompts that must handle diverse inputs.
+
+### 4. Clarity Rewriting (`clarity_rewrite`)
+Finds and fixes ambiguous, vague, or unclear instructions. Replaces fuzzy language with precise specifications. Best for: complex prompts with many instructions.
 
 ## Tips
 
 - **Start with negatives**: If you have examples of bad outputs, they're the fastest path to improvement.
-- **Be harsh when judging**: Generous scoring leads to weak optimization. Be critical.
-- **One strategy at a time**: Don't try all 5 strategies at once. Pick 1-2, test, then try others.
-- **Keep what works**: Never remove parts of the prompt that are working well.
-- **Test on the actual target model**: The target model in config should be the exact model used in production.
+- **Be harsh when judging**: Generous scoring leads to weak optimization. Use the `judge_results` prompt — it enforces harsh scoring.
+- **All optimizers in parallel**: Run all chosen optimizers on the same prompt simultaneously, not sequentially. Each produces an independent candidate.
+- **Inject findings into next round**: Feed strengths and weaknesses from scoring back into the optimizer prompts for the next iteration.
+- **Use sub-agents**: If the IDE supports parallel sub-agents, spawn one per candidate for concurrent optimization.
+- **Save progress**: Keep a running optimization log in markdown so you can track score trajectory across iterations.
