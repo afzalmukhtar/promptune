@@ -1,28 +1,117 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
 .Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
 *.egg
+MANIFEST
 
 # Virtual environments
 .env
 .venv
 env/
 venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
 
-# IDE
-.idea/
+# IDEs
 .vscode/
+.idea/
 *.swp
 *.swo
-
-# OS
+*~
 .DS_Store
 
-# Promptune outputs
-outputs/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Data files (skip large CSV files)
+*.csv
+data/
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Source notebooks folder (keep local, don't commit)
+PromptOptimization/
+
+# Logs
 *.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Documentation (ignore all docs for now)
+docs/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# BEPO outputs
+outputs/
