@@ -64,6 +64,10 @@ Evaluate a prompt by testing it against examples.
 
 ### Empirical Testing (50%)
 
+The evaluator supports 3 modes depending on the training data provided:
+
+#### Standard Mode (positive examples only)
+
 For each training example:
 1. Run the prompt with the example input
 2. Compare actual output to expected output
@@ -77,6 +81,33 @@ For each training example:
 | completeness | 25 | Fully addresses the task? |
 
 **Example score**: 75/100 = 3 of 4 checks passed
+
+#### Reverse Empirical Mode (negative examples only)
+
+When only negative examples are provided (input + bad_output + reason_why_bad), the evaluator uses **reverse scoring** — the prompt is tested against known bad outputs, and similarity to the bad output is penalized:
+
+1. Run the prompt with the negative example's input
+2. Compare actual output to the **known bad output**
+3. Score on 4 binary criteria (25 pts penalty each):
+
+| Check | Penalty | Question |
+|-------|---------|----------|
+| matches_bad_output | -25 | Is the output semantically similar to the bad output? |
+| matches_bad_pattern | -25 | Does it exhibit the failure described in reason_why_bad? |
+| same_tone | -25 | Does it have the same problematic tone/style? |
+| same_mistakes | -25 | Does it repeat the same specific mistakes? |
+
+**Final score** = `100 - penalty_sum`. Avoids all bad patterns → 100/100. Matches all → 0/100.
+
+#### Combined Mode (positive + negative examples)
+
+When both types are provided, the evaluator runs **both** standard and reverse empirical tests in parallel, then averages the scores:
+
+```
+empirical_score = (positive_score + negative_score) / 2
+```
+
+Feedback shows: `Combined Empirical (50%): 82/100 — Positive: 90/100 (3 examples), Negative: 75/100 (3 examples)`
 
 ### Structural Analysis (30%)
 

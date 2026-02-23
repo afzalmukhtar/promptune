@@ -35,8 +35,17 @@ Coordinate the full prompt optimization loop using beam search. This is the core
 | **example_augmentor** | Injects DO/DON'T sections with positive + negative examples |
 | **clarity_rewriter** | Fixes ambiguous instructions using prompt understanding |
 
-### Negative Examples
-Training data can include "bad output + reason why bad" pairs. These are passed to the adversarial optimizer and example augmentor.
+### Negative Examples & Evaluation Modes
+
+Training data can include "bad output + reason why bad" pairs (`NegativeTrainingExample`). Three evaluation modes are automatically selected:
+
+| Mode | Condition | Empirical Scoring |
+|------|-----------|-------------------|
+| **Standard** | Only positive examples | Test output vs expected output (match = good) |
+| **Negative-only** | Only negative examples | Test output vs bad output (match = bad, inverted score) |
+| **Mixed** | Both positive + negative | Average of standard + reverse empirical scores |
+
+Negative examples are also passed to the **adversarial** and **example_augmentor** optimizers for candidate generation in all modes.
 
 ### Prompt Understanding
 The evaluator analyzes which prompt sections the LLM followed vs ignored. This feedback is passed to meta_prompt, adversarial, and clarity_rewriter optimizers.
