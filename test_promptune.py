@@ -78,7 +78,10 @@ async def main():
         dataset = load_dataset(args.data)
         examples = dataset.examples
         negative_examples = dataset.negative_examples or None
-        if not examples:
+        if not examples and negative_examples:
+            print(f"Negative-only mode: {len(negative_examples)} negative examples from {args.data}")
+            print("Scoring uses reverse empirical testing (output must avoid bad patterns).")
+        elif not examples:
             print(f"Warning: No positive examples found in {args.data}")
             print("Using default examples.")
             examples = _default_examples()

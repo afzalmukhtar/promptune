@@ -10,7 +10,7 @@ Defines all Pydantic schemas used across the system:
 - OutputComparison, StructuralAnalysis, etc.: Structured LLM response models
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -69,7 +69,7 @@ class PromptCandidate(BaseModel):
     weaknesses: list[str] = Field(default_factory=list, description="Issues identified")
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 # =============================================================================
@@ -191,6 +191,16 @@ class OutputComparison(BaseModel):
     explanation: str = Field(..., description="Brief explanation of differences if any")
 
 
+class NegativeOutputComparison(BaseModel):
+    """Compare actual output to known BAD output — reverse scoring (match = bad)."""
+
+    matches_bad_output: bool = Field(..., description="Is the actual output semantically similar to the known bad output?")
+    matches_bad_pattern: bool = Field(..., description="Does the actual output exhibit the failure described in reason_why_bad?")
+    same_tone: bool = Field(..., description="Does the actual output have the same problematic tone/style as the bad output?")
+    same_mistakes: bool = Field(..., description="Does the actual output repeat the same specific mistakes as the bad output?")
+    explanation: str = Field(..., description="Brief explanation of how the output compares to the bad example")
+
+
 class StructuralAnalysis(BaseModel):
     """Analyze prompt structure for required components."""
 
@@ -243,10 +253,10 @@ class OptimizationCandidates(BaseModel):
 class PromptUnderstandingResponse(BaseModel):
     """LLM response for prompt understanding analysis."""
 
-    well_followed: list[dict] = Field(
+    well_followed: list[PromptSectionAnalysis] = Field(
         default_factory=list, description="Sections well followed: each with 'section', 'evidence', 'score'"
     )
-    poorly_followed: list[dict] = Field(
+    poorly_followed: list[PromptSectionAnalysis] = Field(
         default_factory=list, description="Sections poorly followed: each with 'section', 'evidence', 'score', 'reason'"
     )
     overall_compliance: float = Field(..., ge=0.0, le=1.0, description="Overall compliance score")

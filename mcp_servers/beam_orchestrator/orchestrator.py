@@ -15,7 +15,7 @@ from mcp_servers.meta_prompt_optimizer.optimizer import optimize as meta_optimiz
 from mcp_servers.utils.config import PromptuneConfig
 from mcp_servers.utils.logger import Component, logger
 from mcp_servers.utils.output_saver import save_optimization_result
-from schemas import EvaluationResult, TrainingExample
+from schemas import EvaluationResult, NegativeTrainingExample, TrainingExample
 
 if TYPE_CHECKING:
     from mcp_servers.targets.base import EvaluationTarget
@@ -52,6 +52,7 @@ async def _evaluate_candidates(
     iteration: int = 1,
     log_details: bool = False,
     target: "EvaluationTarget | None" = None,
+    negative_examples: list[NegativeTrainingExample] | None = None,
 ) -> list[tuple[str, EvaluationResult]]:
     """Evaluate multiple prompts and return with results."""
     results = []
@@ -63,6 +64,7 @@ async def _evaluate_candidates(
             prompt, examples, config=config,
             target=target, iteration=iteration,
             batch_size=config.optimization.batch_size,
+            negative_examples=negative_examples,
         )
         if log_details:
             logger.result("Score", f"{eval_result.score:.0%}")
@@ -145,7 +147,7 @@ async def _generate_adversarial_candidates(
     prompt: str,
     eval_result: EvaluationResult,
     tuner_model: str,
-    negative_examples: list | None = None,
+    negative_examples: list[NegativeTrainingExample] | None = None,
     log_details: bool = False,
 ) -> list[str]:
     """Generate candidates using adversarial optimizer."""
@@ -182,7 +184,7 @@ async def _generate_example_augmentor_candidates(
     prompt: str,
     examples: list[TrainingExample],
     tuner_model: str,
-    negative_examples: list | None = None,
+    negative_examples: list[NegativeTrainingExample] | None = None,
     log_details: bool = False,
 ) -> list[str]:
     """Generate candidates using example augmentor (positive + negative examples)."""
@@ -242,7 +244,7 @@ async def optimize_beam(
     verbose: bool = True,
     target: "EvaluationTarget | None" = None,
     save_output: bool | str = False,
-    negative_examples: list | None = None,
+    negative_examples: list[NegativeTrainingExample] | None = None,
 ) -> OptimizationResult:
     """
     Run beam search optimization on a prompt.
@@ -297,6 +299,7 @@ async def optimize_beam(
         evaluated = await _evaluate_candidates(
             beam, training_examples, config,
             iteration=iteration, log_details=verbose, target=target,
+            negative_examples=negative_examples,
         )
         scores = [e[1].score for e in evaluated]
         best_idx = scores.index(max(scores))
@@ -461,6 +464,7 @@ async def optimize_beam(
         new_evaluated = await _evaluate_candidates(
             new_candidates, training_examples, config,
             iteration=iteration, target=target,
+            negative_examples=negative_examples,
         ) if new_candidates else []
         all_evaluated = list(evaluated) + new_evaluated
         iter_result.candidates_evaluated = len(all_evaluated)
@@ -482,6 +486,7 @@ async def optimize_beam(
     final_evaluated = await _evaluate_candidates(
         beam, training_examples, config,
         iteration=opt.max_iterations, target=target,
+        negative_examples=negative_examples,
     )
     final_scores = [e[1].score for e in final_evaluated]
     best_idx = final_scores.index(max(final_scores))
@@ -511,6 +516,7 @@ async def step(
     training_examples: list[TrainingExample],
     config: PromptuneConfig,
     optimizers: list[str] | None = None,
+    negative_examples: list[NegativeTrainingExample] | None = None,
 ) -> dict:
     """
     Run a single optimization step.
@@ -520,6 +526,7 @@ async def step(
         training_examples: Examples to evaluate against
         config: PromptuneConfig with model roles
         optimizers: Which optimizers to use (overrides config)
+        negative_examples: Optional negative examples for reverse empirical + optimizers
 
     Returns:
         Dict with new beam, scores, and stats
@@ -528,7 +535,10 @@ async def step(
     tuner_model = config.models.tuner
 
     # Evaluate current beam
-    evaluated = await _evaluate_candidates(beam, training_examples, config)
+    evaluated = await _evaluate_candidates(
+        beam, training_examples, config,
+        negative_examples=negative_examples,
+    )
     scores = [e[1].score for e in evaluated]
     best_idx = scores.index(max(scores))
     best_prompt = beam[best_idx]
@@ -556,9 +566,38 @@ async def step(
             )
             candidates.extend(few_shot_candidates)
 
+        if "adversarial" in optimizers:
+            adv_candidates = await _generate_adversarial_candidates(
+                prompt=prompt,
+                eval_result=eval_result,
+                tuner_model=tuner_model,
+                negative_examples=negative_examples,
+            )
+            candidates.extend(adv_candidates)
+
+        if "example_augmentor" in optimizers:
+            aug_candidates = await _generate_example_augmentor_candidates(
+                prompt=prompt,
+                examples=training_examples,
+                tuner_model=tuner_model,
+                negative_examples=negative_examples,
+            )
+            candidates.extend(aug_candidates)
+
+        if "clarity_rewriter" in optimizers:
+            clarity_candidates = await _generate_clarity_candidates(
+                prompt=prompt,
+                eval_result=eval_result,
+                tuner_model=tuner_model,
+            )
+            candidates.extend(clarity_candidates)
+
     # Evaluate all and select top
     all_prompts = list(set(beam + candidates))
-    all_evaluated = await _evaluate_candidates(all_prompts, training_examples, config)
+    all_evaluated = await _evaluate_candidates(
+        all_prompts, training_examples, config,
+        negative_examples=negative_examples,
+    )
     all_evaluated.sort(key=lambda x: x[1].score, reverse=True)
 
     new_beam = [e[0] for e in all_evaluated[: len(beam)]]
