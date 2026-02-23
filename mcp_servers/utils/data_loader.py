@@ -44,9 +44,7 @@ def load_dataset(path: str | Path) -> TrainingDataset:
     elif suffix == ".csv":
         rows = _load_csv(path)
     else:
-        raise ValueError(
-            f"Unsupported file format: {suffix}. Use .json or .csv"
-        )
+        raise ValueError(f"Unsupported file format: {suffix}. Use .json or .csv")
 
     if not rows:
         raise ValueError(f"Dataset file is empty: {path}")
@@ -87,7 +85,9 @@ def _load_json(path: Path) -> list[dict]:
         # Single object — wrap in list
         return [data]
 
-    raise ValueError(f"JSON must be a list of objects or a dict with 'examples' key, got {type(data).__name__}")
+    raise ValueError(
+        f"JSON must be a list of objects or a dict with 'examples' key, got {type(data).__name__}"
+    )
 
 
 def _load_csv(path: Path) -> list[dict]:
@@ -113,12 +113,14 @@ def _parse_rows(rows: list[dict], source: str) -> TrainingDataset:
         # Check if this is a negative example
         if NEGATIVE_REQUIRED_COLUMNS.issubset(keys):
             try:
-                negative_examples.append(NegativeTrainingExample(
-                    sample_prompt=str(row["sample_prompt"]),
-                    input=str(row["input"]),
-                    bad_output=str(row["bad_output"]),
-                    reason_why_bad=str(row["reason_why_bad"]),
-                ))
+                negative_examples.append(
+                    NegativeTrainingExample(
+                        sample_prompt=str(row["sample_prompt"]),
+                        input=str(row["input"]),
+                        bad_output=str(row["bad_output"]),
+                        reason_why_bad=str(row["reason_why_bad"]),
+                    )
+                )
             except Exception as e:
                 errors.append(f"Row {i}: invalid negative example: {e}")
 
@@ -131,11 +133,13 @@ def _parse_rows(rows: list[dict], source: str) -> TrainingDataset:
                         metadata = json.loads(metadata)
                     except json.JSONDecodeError:
                         metadata = {}
-                examples.append(TrainingExample(
-                    input=str(row["input"]),
-                    expected_output=str(row["expected_output"]),
-                    metadata=metadata if isinstance(metadata, dict) else {},
-                ))
+                examples.append(
+                    TrainingExample(
+                        input=str(row["input"]),
+                        expected_output=str(row["expected_output"]),
+                        metadata=metadata if isinstance(metadata, dict) else {},
+                    )
+                )
             except Exception as e:
                 errors.append(f"Row {i}: invalid positive example: {e}")
 

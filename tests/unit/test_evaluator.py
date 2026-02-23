@@ -34,9 +34,7 @@ class TestFormatExamples:
         """Test formatting a single example."""
         from mcp_servers.evaluator.evaluator import format_examples
 
-        examples = [
-            TrainingExample(input="hello", expected_output="Hello! How can I help?")
-        ]
+        examples = [TrainingExample(input="hello", expected_output="Hello! How can I help?")]
         result = format_examples(examples)
 
         assert "Example 1:" in result
@@ -63,8 +61,7 @@ class TestFormatExamples:
         from mcp_servers.evaluator.evaluator import format_examples
 
         examples = [
-            TrainingExample(input=f"input{i}", expected_output=f"output{i}")
-            for i in range(10)
+            TrainingExample(input=f"input{i}", expected_output=f"output{i}") for i in range(10)
         ]
         result = format_examples(examples, max_examples=3)
 

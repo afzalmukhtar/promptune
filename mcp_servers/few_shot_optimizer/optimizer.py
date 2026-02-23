@@ -14,6 +14,7 @@ from schemas import ExampleScores, TrainingExample
 @dataclass
 class ScoredExample:
     """An example with relevance and diversity scores."""
+
     example: TrainingExample
     relevance_score: float
     diversity_score: float
@@ -24,6 +25,7 @@ class ScoredExample:
 @dataclass
 class SelectionResult:
     """Result of example selection."""
+
     selected_examples: list[ScoredExample]
     prompt_with_examples: str
     selection_reasoning: str
@@ -139,10 +141,7 @@ def _compute_diversity_bonus(
             "has_newline": "\n" in s.input,
         }
         # Count matching features
-        matches = sum(
-            1 for k in candidate_features
-            if candidate_features[k] == s_features[k]
-        )
+        matches = sum(1 for k in candidate_features if candidate_features[k] == s_features[k])
         similarity = matches / len(candidate_features)
         max_similarity = max(max_similarity, similarity)
 
@@ -157,8 +156,7 @@ async def _score_examples_with_llm(
 ) -> list[dict]:
     """Use LLM to score examples for relevance and diversity."""
     examples_text = "\n".join(
-        f"[{i}] Input: {e.input}\n    Output: {e.expected_output}"
-        for i, e in enumerate(examples)
+        f"[{i}] Input: {e.input}\n    Output: {e.expected_output}" for i, e in enumerate(examples)
     )
 
     scoring_input = SCORING_PROMPT.format(
@@ -174,7 +172,12 @@ async def _score_examples_with_llm(
             temperature=0.0,
         )
         return [
-            {"index": s.index, "relevance": s.relevance, "diversity": s.diversity, "complexity": s.complexity}
+            {
+                "index": s.index,
+                "relevance": s.relevance,
+                "diversity": s.diversity,
+                "complexity": s.complexity,
+            }
             for s in result.scores
         ]
     except Exception:
@@ -223,9 +226,7 @@ async def select_examples(
         # Sort by complexity for simple_first
         scored.sort(key=lambda x: x.complexity_score)
 
-        examples_text = "\n".join(
-            _format_example_for_prompt(s.example) for s in scored
-        )
+        examples_text = "\n".join(_format_example_for_prompt(s.example) for s in scored)
 
         return SelectionResult(
             selected_examples=scored,
@@ -256,9 +257,7 @@ async def select_examples(
             complexity = scores.get("complexity", _estimate_complexity(example))
 
             # Compute dynamic diversity bonus
-            diversity_bonus = _compute_diversity_bonus(
-                example, [s.example for s in selected]
-            )
+            diversity_bonus = _compute_diversity_bonus(example, [s.example for s in selected])
 
             # Combine scores based on strategy
             if strategy == "relevant":
@@ -277,13 +276,15 @@ async def select_examples(
         if best_idx is not None:
             example = example_pool[best_idx]
             scores = score_lookup.get(best_idx, {})
-            selected.append(ScoredExample(
-                example=example,
-                relevance_score=scores.get("relevance", 0.5),
-                diversity_score=scores.get("diversity", 0.5),
-                complexity_score=scores.get("complexity", _estimate_complexity(example)),
-                combined_score=best_score,
-            ))
+            selected.append(
+                ScoredExample(
+                    example=example,
+                    relevance_score=scores.get("relevance", 0.5),
+                    diversity_score=scores.get("diversity", 0.5),
+                    complexity_score=scores.get("complexity", _estimate_complexity(example)),
+                    combined_score=best_score,
+                )
+            )
             remaining_indices.remove(best_idx)
 
     # Sort by complexity if simple_first strategy
@@ -291,9 +292,7 @@ async def select_examples(
         selected.sort(key=lambda x: x.complexity_score)
 
     # Format examples into prompt
-    examples_text = "\n".join(
-        _format_example_for_prompt(s.example) for s in selected
-    )
+    examples_text = "\n".join(_format_example_for_prompt(s.example) for s in selected)
 
     # Generate reasoning
     reasoning = f"Selected {len(selected)} examples using '{strategy}' strategy. "

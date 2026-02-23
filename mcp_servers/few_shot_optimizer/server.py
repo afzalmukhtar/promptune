@@ -85,8 +85,7 @@ def format_example_set(
         Formatted string with all examples
     """
     training_examples = [
-        TrainingExample(input=e["input"], expected_output=e["expected_output"])
-        for e in examples
+        TrainingExample(input=e["input"], expected_output=e["expected_output"]) for e in examples
     ]
     return format_examples(training_examples, format_style)
 

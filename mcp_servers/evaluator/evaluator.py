@@ -274,8 +274,7 @@ async def _run_empirical_tests(
         test_examples = rng.sample(examples, batch_size)
 
     tasks = [
-        _test_single_example(prompt, ex, target_model, judge_model, target)
-        for ex in test_examples
+        _test_single_example(prompt, ex, target_model, judge_model, target) for ex in test_examples
     ]
     results = await asyncio.gather(*tasks)
 
@@ -429,11 +428,7 @@ async def _analyze_prompt_understanding(
     # Build context from empirical results
     examples_context = ""
     for i, r in enumerate(analysis_results, 1):
-        examples_context += (
-            f"\n--- Example {i} ---\n"
-            f"Input: {r.input}\n"
-            f"Actual Output: {r.actual}\n"
-        )
+        examples_context += f"\n--- Example {i} ---\nInput: {r.input}\nActual Output: {r.actual}\n"
 
     understanding_prompt = PROMPT_UNDERSTANDING_PROMPT.format(
         prompt=prompt,
@@ -527,12 +522,22 @@ async def evaluate_prompt(
     if has_positive and has_negative:
         # Mixed mode: run positive + negative empirical in parallel, average for combined score
         pos_task = _run_empirical_tests(
-            prompt, training_examples, target_model, judge_model,
-            batch_size=batch_size, iteration=iteration, target=target,
+            prompt,
+            training_examples,
+            target_model,
+            judge_model,
+            batch_size=batch_size,
+            iteration=iteration,
+            target=target,
         )
         neg_task = _run_negative_empirical_tests(
-            prompt, negative_examples or [], target_model, judge_model,
-            batch_size=batch_size, iteration=iteration, target=target,
+            prompt,
+            negative_examples or [],
+            target_model,
+            judge_model,
+            batch_size=batch_size,
+            iteration=iteration,
+            target=target,
         )
         (
             (pos_score, pos_results),
@@ -552,8 +557,13 @@ async def evaluate_prompt(
     elif has_negative:
         # Negative-only mode: reverse empirical replaces positive empirical
         neg_task = _run_negative_empirical_tests(
-            prompt, negative_examples or [], target_model, judge_model,
-            batch_size=batch_size, iteration=iteration, target=target,
+            prompt,
+            negative_examples or [],
+            target_model,
+            judge_model,
+            batch_size=batch_size,
+            iteration=iteration,
+            target=target,
         )
         (
             (empirical_score, empirical_results),
@@ -566,8 +576,13 @@ async def evaluate_prompt(
     elif has_positive:
         # Standard mode: positive empirical only
         pos_task = _run_empirical_tests(
-            prompt, training_examples, target_model, judge_model,
-            batch_size=batch_size, iteration=iteration, target=target,
+            prompt,
+            training_examples,
+            target_model,
+            judge_model,
+            batch_size=batch_size,
+            iteration=iteration,
+            target=target,
         )
         (
             (empirical_score, empirical_results),
@@ -612,7 +627,11 @@ async def evaluate_prompt(
 
     # Add empirical details
     if empirical_results:
-        label = "Negative Example Results:" if (has_negative and not has_positive) else "Example Results:"
+        label = (
+            "Negative Example Results:"
+            if (has_negative and not has_positive)
+            else "Example Results:"
+        )
         feedback_lines.append(label)
         for i, r in enumerate(empirical_results, 1):
             status = "✓" if r.score >= 75 else "✗"

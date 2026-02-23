@@ -13,6 +13,7 @@ class TestOptimizerImports:
             OptimizedCandidate,
             optimize,
         )
+
         assert optimize is not None
         assert OptimizedCandidate is not None
         assert OptimizationResult is not None
@@ -23,6 +24,7 @@ class TestOptimizerImports:
             generate_candidates,
             mcp,
         )
+
         assert mcp is not None
         assert generate_candidates is not None
 
@@ -33,6 +35,7 @@ class TestOptimizedCandidate:
     def test_creation(self):
         """Test creating an OptimizedCandidate."""
         from mcp_servers.meta_prompt_optimizer.optimizer import OptimizedCandidate
+
         candidate = OptimizedCandidate(
             prompt="Test prompt",
             strategy="Added format",
@@ -52,6 +55,7 @@ class TestOptimizationResult:
             OptimizationResult,
             OptimizedCandidate,
         )
+
         candidate = OptimizedCandidate(
             prompt="Improved",
             strategy="Better",

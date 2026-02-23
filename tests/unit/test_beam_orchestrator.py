@@ -16,6 +16,7 @@ class TestOrchestratorImports:
             optimize_beam,
             step,
         )
+
         assert optimize_beam is not None
         assert step is not None
         assert IterationResult is not None
@@ -28,6 +29,7 @@ class TestOrchestratorImports:
             optimization_step,
             optimize,
         )
+
         assert mcp is not None
         assert optimize is not None
         assert optimization_step is not None
@@ -39,6 +41,7 @@ class TestPromptuneConfig:
     def test_default_config(self):
         """Test default configuration values."""
         from mcp_servers.utils.config import PromptuneConfig
+
         config = PromptuneConfig()
         assert config.optimization.beam_width == 3
         assert config.optimization.max_iterations == 10
@@ -51,6 +54,7 @@ class TestPromptuneConfig:
     def test_custom_config(self):
         """Test custom configuration."""
         from mcp_servers.utils.config import OptimizationConfig, PromptuneConfig
+
         config = PromptuneConfig(
             optimization=OptimizationConfig(
                 beam_width=5,
@@ -71,6 +75,7 @@ class TestIterationResult:
     def test_creation(self):
         """Test creating an IterationResult."""
         from mcp_servers.beam_orchestrator.orchestrator import IterationResult
+
         result = IterationResult(
             iteration=1,
             best_score=0.75,
@@ -94,6 +99,7 @@ class TestOptimizationResult:
             IterationResult,
             OptimizationResult,
         )
+
         iter_result = IterationResult(
             iteration=1,
             best_score=0.85,
@@ -122,6 +128,7 @@ class TestConfigModelResolution:
     def test_default_models(self):
         """PromptuneConfig should have default model strings."""
         from mcp_servers.utils.config import PromptuneConfig
+
         config = PromptuneConfig()
         assert isinstance(config.models.target, str)
         assert isinstance(config.models.tuner, str)

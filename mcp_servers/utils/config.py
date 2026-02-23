@@ -81,7 +81,13 @@ class OptimizationConfig:
     convergence_patience: int = 3
     batch_size: int = 5
     optimizers: list[str] = field(
-        default_factory=lambda: ["meta_prompt", "few_shot", "adversarial", "example_augmentor", "clarity_rewriter"]
+        default_factory=lambda: [
+            "meta_prompt",
+            "few_shot",
+            "adversarial",
+            "example_augmentor",
+            "clarity_rewriter",
+        ]
     )
 
 
@@ -146,14 +152,19 @@ class PromptuneConfig:
         if not isinstance(opt_raw, dict):
             opt_raw = {}
 
-        default_optimizers = ["meta_prompt", "few_shot", "adversarial", "example_augmentor", "clarity_rewriter"]
+        default_optimizers = [
+            "meta_prompt",
+            "few_shot",
+            "adversarial",
+            "example_augmentor",
+            "clarity_rewriter",
+        ]
         optimizers = opt_raw.get("optimizers", default_optimizers)
         if isinstance(optimizers, list):
             invalid = set(optimizers) - VALID_OPTIMIZERS
             if invalid:
                 raise ValueError(
-                    f"{source}: Invalid optimizer(s): {invalid}. "
-                    f"Valid options: {VALID_OPTIMIZERS}"
+                    f"{source}: Invalid optimizer(s): {invalid}. Valid options: {VALID_OPTIMIZERS}"
                 )
 
         opt_config = OptimizationConfig(
@@ -186,10 +197,13 @@ class PromptuneConfig:
         """
         return cls(
             models=ModelConfig(target=target_model, tuner=tuner_model, judge=judge_model),
-            optimization=OptimizationConfig(**{
-                k: v for k, v in optimization_kwargs.items()
-                if k in OptimizationConfig.__dataclass_fields__
-            }),
+            optimization=OptimizationConfig(
+                **{
+                    k: v
+                    for k, v in optimization_kwargs.items()
+                    if k in OptimizationConfig.__dataclass_fields__
+                }
+            ),
         )
 
 

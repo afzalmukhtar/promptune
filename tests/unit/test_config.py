@@ -11,6 +11,7 @@ class TestModelConfig:
 
     def test_defaults(self):
         from mcp_servers.utils.config import ModelConfig
+
         config = ModelConfig()
         assert config.target == "gpt-4o-mini"
         assert config.tuner == "gpt-4o-mini"
@@ -18,6 +19,7 @@ class TestModelConfig:
 
     def test_custom(self):
         from mcp_servers.utils.config import ModelConfig
+
         config = ModelConfig(target="azure/gpt-4o", tuner="ollama/llama3.2", judge="gpt-4o-mini")
         assert config.target == "azure/gpt-4o"
         assert config.tuner == "ollama/llama3.2"
@@ -28,6 +30,7 @@ class TestOptimizationConfig:
 
     def test_defaults(self):
         from mcp_servers.utils.config import OptimizationConfig
+
         config = OptimizationConfig()
         assert config.beam_width == 3
         assert config.max_iterations == 10
@@ -37,6 +40,7 @@ class TestOptimizationConfig:
 
     def test_custom(self):
         from mcp_servers.utils.config import OptimizationConfig
+
         config = OptimizationConfig(beam_width=5, batch_size=10, optimizers=["meta_prompt"])
         assert config.beam_width == 5
         assert config.batch_size == 10
@@ -48,12 +52,14 @@ class TestPromptuneConfig:
 
     def test_defaults(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         config = PromptuneConfig()
         assert config.models.target == "gpt-4o-mini"
         assert config.optimization.beam_width == 3
 
     def test_from_params(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         config = PromptuneConfig.from_params(
             target_model="azure/gpt-4o",
             tuner_model="azure/gpt-4o",
@@ -69,6 +75,7 @@ class TestPromptuneConfig:
 
     def test_from_yaml_valid(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         data = {
             "models": {
                 "target": "azure/gpt-4o-mini",
@@ -95,11 +102,13 @@ class TestPromptuneConfig:
 
     def test_from_yaml_missing_file(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         with pytest.raises(FileNotFoundError):
             PromptuneConfig.from_yaml("/nonexistent/path/config.yaml")
 
     def test_from_yaml_missing_models(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         data = {"optimization": {"beam_width": 3}}
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data, f)
@@ -109,6 +118,7 @@ class TestPromptuneConfig:
 
     def test_from_yaml_missing_model_key(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         data = {
             "models": {
                 "target": "gpt-4o-mini",
@@ -124,6 +134,7 @@ class TestPromptuneConfig:
 
     def test_from_yaml_invalid_optimizer(self):
         from mcp_servers.utils.config import PromptuneConfig
+
         data = {
             "models": {
                 "target": "gpt-4o-mini",
@@ -143,6 +154,7 @@ class TestPromptuneConfig:
     def test_from_yaml_defaults_for_optimization(self):
         """If optimization section is missing, defaults should be used."""
         from mcp_servers.utils.config import PromptuneConfig
+
         data = {
             "models": {
                 "target": "gpt-4o-mini",
@@ -173,6 +185,7 @@ class TestLoadConfig:
 
     def test_load_config_custom_path(self):
         from mcp_servers.utils.config import load_config
+
         data = {
             "models": {
                 "target": "gpt-4o-mini",

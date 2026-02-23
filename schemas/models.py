@@ -158,7 +158,9 @@ class PromptSectionAnalysis(BaseModel):
 
     section: str = Field(..., description="Which part/instruction of the prompt")
     evidence: str = Field(..., description="What the LLM actually did for this section")
-    score: float = Field(..., ge=0.0, le=1.0, description="How well followed (0=ignored, 1=perfect)")
+    score: float = Field(
+        ..., ge=0.0, le=1.0, description="How well followed (0=ignored, 1=perfect)"
+    )
     reason: str = Field(default="", description="Why it was poorly followed, if applicable")
 
 
@@ -171,9 +173,7 @@ class PromptUnderstanding(BaseModel):
     poorly_followed: list[PromptSectionAnalysis] = Field(
         default_factory=list, description="Prompt sections that were poorly followed or ignored"
     )
-    overall_compliance: float = Field(
-        ..., ge=0.0, le=1.0, description="Overall compliance score"
-    )
+    overall_compliance: float = Field(..., ge=0.0, le=1.0, description="Overall compliance score")
 
 
 # =============================================================================
@@ -184,9 +184,13 @@ class PromptUnderstanding(BaseModel):
 class OutputComparison(BaseModel):
     """Compare actual LLM output to expected output."""
 
-    semantic_match: bool = Field(..., description="Does actual output convey same meaning as expected?")
+    semantic_match: bool = Field(
+        ..., description="Does actual output convey same meaning as expected?"
+    )
     format_match: bool = Field(..., description="Is the format similar?")
-    correctness: bool = Field(..., description="Is the actual output factually/functionally correct?")
+    correctness: bool = Field(
+        ..., description="Is the actual output factually/functionally correct?"
+    )
     completeness: bool = Field(..., description="Does actual output fully address the task?")
     explanation: str = Field(..., description="Brief explanation of differences if any")
 
@@ -194,11 +198,23 @@ class OutputComparison(BaseModel):
 class NegativeOutputComparison(BaseModel):
     """Compare actual output to known BAD output — reverse scoring (match = bad)."""
 
-    matches_bad_output: bool = Field(..., description="Is the actual output semantically similar to the known bad output?")
-    matches_bad_pattern: bool = Field(..., description="Does the actual output exhibit the failure described in reason_why_bad?")
-    same_tone: bool = Field(..., description="Does the actual output have the same problematic tone/style as the bad output?")
-    same_mistakes: bool = Field(..., description="Does the actual output repeat the same specific mistakes as the bad output?")
-    explanation: str = Field(..., description="Brief explanation of how the output compares to the bad example")
+    matches_bad_output: bool = Field(
+        ..., description="Is the actual output semantically similar to the known bad output?"
+    )
+    matches_bad_pattern: bool = Field(
+        ..., description="Does the actual output exhibit the failure described in reason_why_bad?"
+    )
+    same_tone: bool = Field(
+        ...,
+        description="Does the actual output have the same problematic tone/style as the bad output?",
+    )
+    same_mistakes: bool = Field(
+        ...,
+        description="Does the actual output repeat the same specific mistakes as the bad output?",
+    )
+    explanation: str = Field(
+        ..., description="Brief explanation of how the output compares to the bad example"
+    )
 
 
 class StructuralAnalysis(BaseModel):
@@ -254,10 +270,12 @@ class PromptUnderstandingResponse(BaseModel):
     """LLM response for prompt understanding analysis."""
 
     well_followed: list[PromptSectionAnalysis] = Field(
-        default_factory=list, description="Sections well followed: each with 'section', 'evidence', 'score'"
+        default_factory=list,
+        description="Sections well followed: each with 'section', 'evidence', 'score'",
     )
     poorly_followed: list[PromptSectionAnalysis] = Field(
-        default_factory=list, description="Sections poorly followed: each with 'section', 'evidence', 'score', 'reason'"
+        default_factory=list,
+        description="Sections poorly followed: each with 'section', 'evidence', 'score', 'reason'",
     )
     overall_compliance: float = Field(..., ge=0.0, le=1.0, description="Overall compliance score")
 
@@ -269,9 +287,7 @@ class ClarityAnalysis(BaseModel):
     rewritten_sentences: list[str] = Field(
         ..., description="Improved versions of each unclear sentence (same order)"
     )
-    reasoning: list[str] = Field(
-        ..., description="Why each sentence was unclear (same order)"
-    )
+    reasoning: list[str] = Field(..., description="Why each sentence was unclear (same order)")
 
 
 class AdversarialInputs(BaseModel):

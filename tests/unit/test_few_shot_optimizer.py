@@ -16,6 +16,7 @@ class TestOptimizerImports:
             format_examples,
             select_examples,
         )
+
         assert select_examples is not None
         assert format_examples is not None
         assert ScoredExample is not None
@@ -28,6 +29,7 @@ class TestOptimizerImports:
             mcp,
             select_optimal_examples,
         )
+
         assert mcp is not None
         assert select_optimal_examples is not None
         assert format_example_set is not None
@@ -39,6 +41,7 @@ class TestFormatExamples:
     def test_format_markdown(self):
         """Test markdown formatting."""
         from mcp_servers.few_shot_optimizer.optimizer import format_examples
+
         examples = [
             TrainingExample(input="hello", expected_output="world"),
         ]
@@ -50,6 +53,7 @@ class TestFormatExamples:
     def test_format_xml(self):
         """Test XML formatting."""
         from mcp_servers.few_shot_optimizer.optimizer import format_examples
+
         examples = [
             TrainingExample(input="test", expected_output="result"),
         ]
@@ -61,6 +65,7 @@ class TestFormatExamples:
     def test_format_numbered(self):
         """Test numbered formatting."""
         from mcp_servers.few_shot_optimizer.optimizer import format_examples
+
         examples = [
             TrainingExample(input="a", expected_output="b"),
             TrainingExample(input="c", expected_output="d"),
@@ -72,6 +77,7 @@ class TestFormatExamples:
     def test_format_chat(self):
         """Test chat formatting."""
         from mcp_servers.few_shot_optimizer.optimizer import format_examples
+
         examples = [
             TrainingExample(input="question", expected_output="answer"),
         ]
@@ -86,6 +92,7 @@ class TestComplexityEstimation:
     def test_simple_example_low_complexity(self):
         """Simple examples should have low complexity."""
         from mcp_servers.few_shot_optimizer.optimizer import _estimate_complexity
+
         simple = TrainingExample(input="hi", expected_output="hello")
         score = _estimate_complexity(simple)
         assert score < 0.3
@@ -93,6 +100,7 @@ class TestComplexityEstimation:
     def test_complex_example_high_complexity(self):
         """Complex examples should have high complexity."""
         from mcp_servers.few_shot_optimizer.optimizer import _estimate_complexity
+
         complex_ex = TrainingExample(
             input="def calculate(x, y):\n    return x + y\n\nresult = calculate(1, 2)",
             expected_output="The function adds two numbers.\nOutput: 3",
@@ -107,6 +115,7 @@ class TestDiversityBonus:
     def test_first_selection_neutral(self):
         """First selection should have neutral diversity bonus."""
         from mcp_servers.few_shot_optimizer.optimizer import _compute_diversity_bonus
+
         candidate = TrainingExample(input="test", expected_output="result")
         bonus = _compute_diversity_bonus(candidate, [])
         assert bonus == 0.5
@@ -114,6 +123,7 @@ class TestDiversityBonus:
     def test_similar_example_low_bonus(self):
         """Similar examples should have low diversity bonus."""
         from mcp_servers.few_shot_optimizer.optimizer import _compute_diversity_bonus
+
         candidate = TrainingExample(input="hello world", expected_output="hi")
         selected = [TrainingExample(input="hello there", expected_output="hey")]
         bonus = _compute_diversity_bonus(candidate, selected)
@@ -122,6 +132,7 @@ class TestDiversityBonus:
     def test_different_example_high_bonus(self):
         """Different examples should have high diversity bonus."""
         from mcp_servers.few_shot_optimizer.optimizer import _compute_diversity_bonus
+
         candidate = TrainingExample(input="x = 1\ny = 2", expected_output="code")
         selected = [TrainingExample(input="hello", expected_output="greeting")]
         bonus = _compute_diversity_bonus(candidate, selected)

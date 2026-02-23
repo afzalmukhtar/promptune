@@ -98,7 +98,7 @@ class PromptuneLogger:
         preview = prompt.replace("\n", " ")[:max_len]
         if len(prompt) > max_len:
             preview += "..."
-        self._print(f"{self._format_time()}{self._indent()}  │  \"{preview}\"")
+        self._print(f'{self._format_time()}{self._indent()}  │  "{preview}"')
 
     def iteration_start(self, iteration: int, total: int):
         """Log the start of an iteration."""

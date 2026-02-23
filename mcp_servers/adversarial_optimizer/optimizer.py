@@ -20,6 +20,7 @@ from schemas import (
 @dataclass
 class OptimizedCandidate:
     """A single hardened prompt candidate."""
+
     prompt: str
     strategy: str
     addressed_weaknesses: list[str]
@@ -28,6 +29,7 @@ class OptimizedCandidate:
 @dataclass
 class OptimizationResult:
     """Result of adversarial optimization."""
+
     candidates: list[OptimizedCandidate]
     original_prompt: str
     adversarial_cases: list[str]
@@ -119,7 +121,7 @@ def _build_understanding_section(understanding: PromptUnderstanding | None) -> s
         return ""
     lines = []
     for s in understanding.poorly_followed:
-        lines.append(f"- \"{s.section}\" (score: {s.score:.0%}) — {s.reason}")
+        lines.append(f'- "{s.section}" (score: {s.score:.0%}) — {s.reason}')
     return UNDERSTANDING_SECTION.format(poorly_followed="\n".join(lines))
 
 

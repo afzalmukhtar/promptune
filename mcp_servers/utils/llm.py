@@ -46,8 +46,7 @@ def _pydantic_to_tool_schema(model: type[BaseModel]) -> dict:
                 cleaned[key] = _clean_schema(value)
             elif isinstance(value, list):
                 cleaned[key] = [
-                    _clean_schema(item) if isinstance(item, dict) else item
-                    for item in value
+                    _clean_schema(item) if isinstance(item, dict) else item for item in value
                 ]
             else:
                 cleaned[key] = value
@@ -71,8 +70,7 @@ def _pydantic_to_tool_schema(model: type[BaseModel]) -> dict:
                 result[key] = _resolve_refs(value)
             elif isinstance(value, list):
                 result[key] = [
-                    _resolve_refs(item) if isinstance(item, dict) else item
-                    for item in value
+                    _resolve_refs(item) if isinstance(item, dict) else item for item in value
                 ]
             else:
                 result[key] = value
@@ -136,31 +134,23 @@ async def call_llm_structured(
                 )
             else:
                 # Fallback: JSON mode
-                result = await _try_json_mode(
-                    model, messages, response_model, temperature
-                )
+                result = await _try_json_mode(model, messages, response_model, temperature)
             return result
 
         except (json.JSONDecodeError, ValidationError, KeyError, IndexError, TypeError) as e:
             last_error = e
-            logger.warning(
-                f"Structured output attempt {attempt + 1}/{1 + max_retries} failed: {e}"
-            )
+            logger.warning(f"Structured output attempt {attempt + 1}/{1 + max_retries} failed: {e}")
             continue
 
         except Exception as e:
             last_error = e
-            logger.warning(
-                f"Structured output attempt {attempt + 1}/{1 + max_retries} error: {e}"
-            )
+            logger.warning(f"Structured output attempt {attempt + 1}/{1 + max_retries} error: {e}")
             # On first failure, try JSON mode fallback (covers tool calling
             # not supported, Azure API errors, etc.)
             if attempt == 0:
                 logger.info(f"Tool calling failed for {model}, trying JSON mode fallback")
                 try:
-                    return await _try_json_mode(
-                        model, messages, response_model, temperature
-                    )
+                    return await _try_json_mode(model, messages, response_model, temperature)
                 except Exception as fallback_e:
                     last_error = fallback_e
                     logger.warning(f"JSON mode fallback also failed: {fallback_e}")

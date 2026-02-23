@@ -8,8 +8,7 @@ from typing import Protocol, runtime_checkable
 class EvaluationTarget(Protocol):
     """Protocol for black-box evaluation targets."""
 
-    async def invoke(self, prompt: str, input_text: str) -> str:
-        ...
+    async def invoke(self, prompt: str, input_text: str) -> str: ...
 
 
 class BaseTarget(ABC):

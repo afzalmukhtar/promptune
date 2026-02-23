@@ -61,8 +61,11 @@ async def _evaluate_candidates(
             logger.stage(Component.EVALUATOR, f"Evaluating candidate {i + 1}/{len(prompts)}")
             logger.prompt_preview(prompt)
         eval_result = await evaluate_prompt(
-            prompt, examples, config=config,
-            target=target, iteration=iteration,
+            prompt,
+            examples,
+            config=config,
+            target=target,
+            iteration=iteration,
             batch_size=config.optimization.batch_size,
             negative_examples=negative_examples,
         )
@@ -297,8 +300,12 @@ async def optimize_beam(
             logger.stage(Component.EVALUATOR, f"Evaluating beam ({len(beam)} prompts)")
 
         evaluated = await _evaluate_candidates(
-            beam, training_examples, config,
-            iteration=iteration, log_details=verbose, target=target,
+            beam,
+            training_examples,
+            config,
+            iteration=iteration,
+            log_details=verbose,
+            target=target,
             negative_examples=negative_examples,
         )
         scores = [e[1].score for e in evaluated]
@@ -461,11 +468,18 @@ async def optimize_beam(
         # Evaluate only new candidates (reuse beam scores from above)
         beam_eval_cache = {prompt: eval_result for prompt, eval_result in evaluated}
         new_candidates = list(set(c for c in candidates if c not in beam_eval_cache))
-        new_evaluated = await _evaluate_candidates(
-            new_candidates, training_examples, config,
-            iteration=iteration, target=target,
-            negative_examples=negative_examples,
-        ) if new_candidates else []
+        new_evaluated = (
+            await _evaluate_candidates(
+                new_candidates,
+                training_examples,
+                config,
+                iteration=iteration,
+                target=target,
+                negative_examples=negative_examples,
+            )
+            if new_candidates
+            else []
+        )
         all_evaluated = list(evaluated) + new_evaluated
         iter_result.candidates_evaluated = len(all_evaluated)
 
@@ -484,8 +498,11 @@ async def optimize_beam(
         logger.stage(Component.ORCHESTRATOR, "Max iterations reached - final evaluation")
 
     final_evaluated = await _evaluate_candidates(
-        beam, training_examples, config,
-        iteration=opt.max_iterations, target=target,
+        beam,
+        training_examples,
+        config,
+        iteration=opt.max_iterations,
+        target=target,
         negative_examples=negative_examples,
     )
     final_scores = [e[1].score for e in final_evaluated]
@@ -536,7 +553,9 @@ async def step(
 
     # Evaluate current beam
     evaluated = await _evaluate_candidates(
-        beam, training_examples, config,
+        beam,
+        training_examples,
+        config,
         negative_examples=negative_examples,
     )
     scores = [e[1].score for e in evaluated]
@@ -595,7 +614,9 @@ async def step(
     # Evaluate all and select top
     all_prompts = list(set(beam + candidates))
     all_evaluated = await _evaluate_candidates(
-        all_prompts, training_examples, config,
+        all_prompts,
+        training_examples,
+        config,
         negative_examples=negative_examples,
     )
     all_evaluated.sort(key=lambda x: x[1].score, reverse=True)

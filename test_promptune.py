@@ -41,18 +41,32 @@ async def main():
     parser.add_argument("--config", default=None, help="Config file path (default: promptune.yaml)")
     parser.add_argument("--data", default=None, help="Training data file (JSON or CSV)")
     parser.add_argument(
-        "--optimizers", nargs="+", default=None,
+        "--optimizers",
+        nargs="+",
+        default=None,
         help="Optimizers to use (overrides config). Options: meta_prompt few_shot adversarial example_augmentor clarity_rewriter",
     )
     parser.add_argument("--beam", type=int, default=None, help="Beam width (overrides config)")
-    parser.add_argument("--max-iter", type=int, default=None, help="Max iterations (overrides config)")
-    parser.add_argument("--target", type=float, default=None, help="Target score 0-1 (overrides config)")
-    parser.add_argument("--batch-size", type=int, default=None, help="Examples per eval batch (overrides config)")
+    parser.add_argument(
+        "--max-iter", type=int, default=None, help="Max iterations (overrides config)"
+    )
+    parser.add_argument(
+        "--target", type=float, default=None, help="Target score 0-1 (overrides config)"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=None, help="Examples per eval batch (overrides config)"
+    )
     parser.add_argument(
         "--converge", action="store_true", help="Run until convergence (20 iterations)"
     )
     parser.add_argument("--quiet", action="store_true", help="Minimal output")
-    parser.add_argument("--save", nargs="?", const="outputs", default=False, help="Save results (optionally specify dir)")
+    parser.add_argument(
+        "--save",
+        nargs="?",
+        const="outputs",
+        default=False,
+        help="Save results (optionally specify dir)",
+    )
     args = parser.parse_args()
 
     # Load config (required)
@@ -79,7 +93,9 @@ async def main():
         examples = dataset.examples
         negative_examples = dataset.negative_examples or None
         if not examples and negative_examples:
-            print(f"Negative-only mode: {len(negative_examples)} negative examples from {args.data}")
+            print(
+                f"Negative-only mode: {len(negative_examples)} negative examples from {args.data}"
+            )
             print("Scoring uses reverse empirical testing (output must avoid bad patterns).")
         elif not examples:
             print(f"Warning: No positive examples found in {args.data}")

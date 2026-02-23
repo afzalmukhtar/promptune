@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 @dataclass
 class OptimizedCandidate:
     """A single optimized prompt candidate."""
+
     prompt: str
     strategy: str
     addressed_weaknesses: list[str]
@@ -27,6 +28,7 @@ class OptimizedCandidate:
 @dataclass
 class OptimizationResult:
     """Result of optimization containing multiple candidates."""
+
     candidates: list[OptimizedCandidate]
     original_prompt: str
 
@@ -109,13 +111,11 @@ def _build_understanding_section(understanding: PromptUnderstanding | None) -> s
 
     well_lines = []
     for s in understanding.well_followed:
-        well_lines.append(f"- \"{s.section}\" (score: {s.score:.0%}) — Evidence: {s.evidence}")
+        well_lines.append(f'- "{s.section}" (score: {s.score:.0%}) — Evidence: {s.evidence}')
 
     poorly_lines = []
     for s in understanding.poorly_followed:
-        poorly_lines.append(
-            f"- \"{s.section}\" (score: {s.score:.0%}) — Reason: {s.reason}"
-        )
+        poorly_lines.append(f'- "{s.section}" (score: {s.score:.0%}) — Reason: {s.reason}')
 
     if not well_lines and not poorly_lines:
         return ""
@@ -156,7 +156,7 @@ async def optimize(
     cross_section = ""
     if cross_pollination_prompts:
         prompts_text = "\n\n---\n\n".join(
-            f"Prompt {i+1}:\n{p}" for i, p in enumerate(cross_pollination_prompts)
+            f"Prompt {i + 1}:\n{p}" for i, p in enumerate(cross_pollination_prompts)
         )
         cross_section = CROSS_POLLINATION_SECTION.format(prompts=prompts_text)
 
@@ -195,11 +195,13 @@ async def optimize(
     # Build candidates from structured response
     candidates = []
     for c in result.candidates:
-        candidates.append(OptimizedCandidate(
-            prompt=c.prompt,
-            strategy=c.strategy,
-            addressed_weaknesses=c.addressed_weaknesses,
-        ))
+        candidates.append(
+            OptimizedCandidate(
+                prompt=c.prompt,
+                strategy=c.strategy,
+                addressed_weaknesses=c.addressed_weaknesses,
+            )
+        )
 
     return OptimizationResult(
         candidates=candidates,

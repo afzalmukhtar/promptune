@@ -66,7 +66,7 @@ def _build_understanding_section(understanding: PromptUnderstanding | None) -> s
         return ""
     lines = []
     for s in understanding.poorly_followed:
-        lines.append(f"- \"{s.section}\" (compliance: {s.score:.0%}) — {s.reason}")
+        lines.append(f'- "{s.section}" (compliance: {s.score:.0%}) — {s.reason}')
     return UNDERSTANDING_SECTION.format(poorly_followed="\n".join(lines))
 
 
@@ -112,8 +112,8 @@ async def rewrite(
         return None
 
     # Step 2: Rewrite the prompt with clearer versions
-    unclear_text = "\n".join(f"- \"{s}\"" for s in analysis.unclear_sentences)
-    replacements_text = "\n".join(f"- \"{s}\"" for s in analysis.rewritten_sentences)
+    unclear_text = "\n".join(f'- "{s}"' for s in analysis.unclear_sentences)
+    replacements_text = "\n".join(f'- "{s}"' for s in analysis.rewritten_sentences)
     reasoning_text = "\n".join(f"- {r}" for r in analysis.reasoning)
 
     rewrite_input = REWRITE_PROMPT.format(

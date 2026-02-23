@@ -94,7 +94,9 @@ class TestLoadDatasetCSV:
     def test_load_negative_csv(self):
         from mcp_servers.utils.data_loader import load_dataset
 
-        csv_content = "sample_prompt,input,bad_output,reason_why_bad\nBe helpful,hello,go away,Not helpful\n"
+        csv_content = (
+            "sample_prompt,input,bad_output,reason_why_bad\nBe helpful,hello,go away,Not helpful\n"
+        )
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(csv_content)
             f.flush()

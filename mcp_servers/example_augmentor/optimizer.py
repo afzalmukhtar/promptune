@@ -67,10 +67,7 @@ async def augment(
     if positive_examples:
         pos_lines = []
         for i, ex in enumerate(positive_examples[:5], 1):
-            pos_lines.append(
-                f"{i}. Input: {ex.input}\n"
-                f"   Expected Output: {ex.expected_output}"
-            )
+            pos_lines.append(f"{i}. Input: {ex.input}\n   Expected Output: {ex.expected_output}")
         pos_text = "\n".join(pos_lines)
 
     # Format negative examples
