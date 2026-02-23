@@ -27,7 +27,7 @@ Evaluate prompt quality by **actually testing it** against training examples. Do
 
 ### evaluate
 
-Evaluate a prompt by testing it against examples.
+Evaluate a prompt by testing it against examples. Supports positive-only, negative-only, or mixed.
 
 **Input:**
 ```json
@@ -36,9 +36,16 @@ Evaluate a prompt by testing it against examples.
   "training_examples": [
     {"input": "example input", "expected_output": "example output"}
   ],
-  "model": "azure/gpt-4o-mini"
+  "negative_examples": [
+    {"input": "example input", "bad_output": "bad output", "reason_why_bad": "why it's bad"}
+  ],
+  "config_path": "promptune.yaml"
 }
 ```
+
+- Pass only `training_examples` → standard empirical scoring
+- Pass only `negative_examples` → reverse empirical scoring
+- Pass both → combined scoring (average of positive + negative)
 
 **Output:**
 ```json

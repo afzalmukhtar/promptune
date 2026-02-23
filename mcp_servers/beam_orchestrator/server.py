@@ -12,7 +12,7 @@ from mcp_servers.beam_orchestrator.orchestrator import (
     step,
 )
 from mcp_servers.utils.config import load_config
-from schemas import TrainingExample
+from schemas import NegativeTrainingExample, TrainingExample
 
 mcp = FastMCP("beam_orchestrator")
 
@@ -20,15 +20,22 @@ mcp = FastMCP("beam_orchestrator")
 @mcp.tool()
 async def optimize(
     initial_prompt: str,
-    training_examples: list[dict],
+    training_examples: list[dict] | None = None,
+    negative_examples: list[dict] | None = None,
     config_path: str | None = None,
 ) -> dict:
     """
     Run full beam search optimization on a prompt.
 
+    Supports 3 modes based on which examples are provided:
+    - Positive only: standard empirical scoring
+    - Negative only: reverse empirical scoring (output must avoid bad patterns)
+    - Mixed: combined scoring (average of positive + negative empirical)
+
     Args:
         initial_prompt: Starting prompt to optimize
-        training_examples: List of example dicts with 'input' and 'expected_output'
+        training_examples: List of {input, expected_output} dicts (positive examples)
+        negative_examples: List of {input, bad_output, reason_why_bad} dicts (negative examples)
         config_path: Path to promptune.yaml (default: 'promptune.yaml')
 
     Returns:
@@ -37,13 +44,17 @@ async def optimize(
     config = load_config(config_path)
     examples = [
         TrainingExample(input=e["input"], expected_output=e["expected_output"])
-        for e in training_examples
+        for e in (training_examples or [])
     ]
+    negatives = [
+        NegativeTrainingExample(**e) for e in (negative_examples or [])
+    ] or None
 
     result: OptimizationResult = await optimize_beam(
         initial_prompt=initial_prompt,
         training_examples=examples,
         config=config,
+        negative_examples=negatives,
     )
 
     return {
@@ -68,7 +79,8 @@ async def optimize(
 @mcp.tool()
 async def optimization_step(
     beam: list[str],
-    training_examples: list[dict],
+    training_examples: list[dict] | None = None,
+    negative_examples: list[dict] | None = None,
     config_path: str | None = None,
     optimizers: list[str] | None = None,
 ) -> dict:
@@ -77,7 +89,8 @@ async def optimization_step(
 
     Args:
         beam: Current beam of prompts
-        training_examples: List of example dicts
+        training_examples: List of {input, expected_output} dicts (positive examples)
+        negative_examples: List of {input, bad_output, reason_why_bad} dicts (negative examples)
         config_path: Path to promptune.yaml (default: 'promptune.yaml')
         optimizers: Which optimizers to use (overrides config)
 
@@ -87,14 +100,18 @@ async def optimization_step(
     config = load_config(config_path)
     examples = [
         TrainingExample(input=e["input"], expected_output=e["expected_output"])
-        for e in training_examples
+        for e in (training_examples or [])
     ]
+    negatives = [
+        NegativeTrainingExample(**e) for e in (negative_examples or [])
+    ] or None
 
     return await step(
         beam=beam,
         training_examples=examples,
         config=config,
         optimizers=optimizers,
+        negative_examples=negatives,
     )
 
 

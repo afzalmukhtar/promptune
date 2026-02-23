@@ -60,7 +60,7 @@ Stop when:
 
 ### optimize
 
-Run the full beam search optimization loop.
+Run the full beam search optimization loop. Supports positive-only, negative-only, or mixed examples.
 
 **Input:**
 ```json
@@ -69,9 +69,16 @@ Run the full beam search optimization loop.
   "training_examples": [
     {"input": "...", "expected_output": "..."}
   ],
+  "negative_examples": [
+    {"input": "...", "bad_output": "...", "reason_why_bad": "..."}
+  ],
   "config_path": "promptune.yaml"
 }
 ```
+
+- Pass only `training_examples` → standard empirical scoring
+- Pass only `negative_examples` → reverse empirical scoring (avoids bad patterns)
+- Pass both → combined scoring (average of positive + negative)
 
 **Output:**
 ```json
@@ -95,7 +102,8 @@ Run a single optimization step (for manual control).
 ```json
 {
   "beam": ["prompt1", "prompt2", "prompt3"],
-  "training_examples": [...],
+  "training_examples": [{"input": "...", "expected_output": "..."}],
+  "negative_examples": [{"input": "...", "bad_output": "...", "reason_why_bad": "..."}],
   "config_path": "promptune.yaml",
   "optimizers": ["meta_prompt"]
 }
