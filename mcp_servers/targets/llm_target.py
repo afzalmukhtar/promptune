@@ -12,10 +12,10 @@ load_dotenv()
 
 class LLMTarget(BaseTarget):
     """LLM target - prompt as system, input as user."""
-    
-    def __init__(self, model: str = None):
+
+    def __init__(self, model: str | None = None):
         self.model = model or os.getenv("AZURE_OPENAI_MODEL", "gpt-4o-mini")
-    
+
     async def invoke(self, prompt: str, input_text: str) -> str:
         response = await acompletion(
             model=self.model,

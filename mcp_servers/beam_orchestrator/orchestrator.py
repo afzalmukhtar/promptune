@@ -283,7 +283,7 @@ async def optimize_beam(
 
     beam = [initial_prompt]
     history: list[IterationResult] = []
-    prev_best_score = 0.0
+    global_best_score = 0.0
     no_improvement_count = 0
 
     for iteration in range(1, opt.max_iterations + 1):
@@ -346,7 +346,7 @@ async def optimize_beam(
             return result
 
         # Check convergence (no improvement)
-        improvement = best_score - prev_best_score
+        improvement = best_score - global_best_score
         if improvement < opt.convergence_threshold:
             no_improvement_count += 1
             if verbose:
@@ -377,7 +377,8 @@ async def optimize_beam(
                     logger.success(f"Saved to {paths['prompt']}")
             return result
 
-        prev_best_score = best_score
+        if best_score > global_best_score:
+            global_best_score = best_score
 
         # Generate new candidates
         if verbose:
@@ -454,12 +455,14 @@ async def optimize_beam(
                 f"Selecting top {opt.beam_width} from {len(candidates)} candidates",
             )
 
-        # Combine beam + candidates and evaluate
-        all_prompts = list(set(beam + candidates))  # Dedupe
-        all_evaluated = await _evaluate_candidates(
-            all_prompts, training_examples, config,
+        # Evaluate only new candidates (reuse beam scores from above)
+        beam_eval_cache = {prompt: eval_result for prompt, eval_result in evaluated}
+        new_candidates = list(set(c for c in candidates if c not in beam_eval_cache))
+        new_evaluated = await _evaluate_candidates(
+            new_candidates, training_examples, config,
             iteration=iteration, target=target,
-        )
+        ) if new_candidates else []
+        all_evaluated = list(evaluated) + new_evaluated
         iter_result.candidates_evaluated = len(all_evaluated)
 
         # Select top-k for new beam

@@ -23,7 +23,6 @@ from schemas import (
     AdversarialAnalysis,
     EvaluationResult,
     OutputComparison,
-    PromptSectionAnalysis,
     PromptUnderstanding,
     PromptUnderstandingResponse,
     StructuralAnalysis,
@@ -233,6 +232,8 @@ async def _run_empirical_tests(
     """Run prompt against examples and score output quality.
 
     Uses random batch sampling: each iteration gets a different random subset.
+    The seed combines iteration and a prompt hash so different prompts get
+    different batches within the same iteration.
     """
     if not examples:
         return 50, []  # Neutral score if no examples
@@ -241,7 +242,8 @@ async def _run_empirical_tests(
     if len(examples) <= batch_size:
         test_examples = examples
     else:
-        rng = random.Random(iteration if iteration is not None else 42)
+        seed = (iteration if iteration is not None else 42) + hash(prompt) % 10000
+        rng = random.Random(seed)
         test_examples = rng.sample(examples, batch_size)
 
     tasks = [
@@ -250,7 +252,7 @@ async def _run_empirical_tests(
     ]
     results = await asyncio.gather(*tasks)
 
-    avg_score = sum(r.score for r in results) // len(results) if results else 0
+    avg_score = round(sum(r.score for r in results) / len(results)) if results else 0
     return avg_score, results
 
 
@@ -340,28 +342,10 @@ async def _analyze_prompt_understanding(
             temperature=0.0,
         )
 
-        # Convert raw response to typed PromptUnderstanding
-        well_followed = []
-        for item in raw.well_followed:
-            well_followed.append(PromptSectionAnalysis(
-                section=item.get("section", ""),
-                evidence=item.get("evidence", ""),
-                score=min(max(float(item.get("score", 0.5)), 0.0), 1.0),
-                reason=item.get("reason", ""),
-            ))
-
-        poorly_followed = []
-        for item in raw.poorly_followed:
-            poorly_followed.append(PromptSectionAnalysis(
-                section=item.get("section", ""),
-                evidence=item.get("evidence", ""),
-                score=min(max(float(item.get("score", 0.5)), 0.0), 1.0),
-                reason=item.get("reason", "No reason provided"),
-            ))
-
+        # Convert typed response to PromptUnderstanding
         return PromptUnderstanding(
-            well_followed=well_followed,
-            poorly_followed=poorly_followed,
+            well_followed=raw.well_followed,
+            poorly_followed=raw.poorly_followed,
             overall_compliance=raw.overall_compliance,
         )
     except Exception:
@@ -377,7 +361,7 @@ async def evaluate_prompt(
     judge_model: str | None = None,
     pass_threshold: int = 70,
     target: "EvaluationTarget | None" = None,
-    batch_size: int = 5,
+    batch_size: int | None = None,
     iteration: int | None = None,
 ) -> EvaluationResult:
     """
@@ -410,7 +394,8 @@ async def evaluate_prompt(
     if config:
         target_model = target_model or config.models.target
         judge_model = judge_model or config.models.judge
-        batch_size = batch_size or config.optimization.batch_size
+        batch_size = batch_size if batch_size is not None else config.optimization.batch_size
+    batch_size = batch_size or 5
 
     if not target_model or not judge_model:
         raise ValueError(
