@@ -11,6 +11,7 @@ from mcp_servers.few_shot_optimizer.optimizer import (
     format_examples,
     select_examples,
 )
+from mcp_servers.utils.config import load_config
 from schemas import TrainingExample
 
 mcp = FastMCP("few_shot_optimizer")
@@ -22,6 +23,7 @@ async def select_optimal_examples(
     example_pool: list[dict],
     num_examples: int = 3,
     strategy: str = "balanced",
+    config_path: str | None = None,
 ) -> dict:
     """
     Select optimal few-shot examples from a pool.
@@ -31,11 +33,12 @@ async def select_optimal_examples(
         example_pool: List of example dicts with 'input' and 'expected_output'
         num_examples: Number of examples to select (default: 3)
         strategy: Selection strategy - balanced, relevant, diverse, simple_first
+        config_path: Path to promptune.yaml (default: 'promptune.yaml')
 
     Returns:
         Dict with selected examples, formatted prompt, and reasoning
     """
-    # Convert dicts to TrainingExample objects
+    config = load_config(config_path)
     examples = [
         TrainingExample(input=e["input"], expected_output=e["expected_output"])
         for e in example_pool
@@ -46,6 +49,7 @@ async def select_optimal_examples(
         example_pool=examples,
         num_examples=num_examples,
         strategy=strategy,
+        model=config.models.tuner,
     )
 
     return {

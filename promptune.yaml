@@ -1,0 +1,15 @@
+models:
+  target: "azure/gpt-4.1"
+  tuner: "azure/gpt-4.1"
+  judge: "azure/gpt-4.1"
+
+optimization:
+  beam_width: 2
+  max_iterations: 3
+  target_score: 0.90
+  convergence_threshold: 0.02
+  convergence_patience: 3
+  batch_size: 3
+  optimizers:
+    - meta_prompt
+    - few_shot

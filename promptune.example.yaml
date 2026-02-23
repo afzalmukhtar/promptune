@@ -1,0 +1,67 @@
+# Promptune Configuration
+# =======================
+#
+# Copy this file to 'promptune.yaml' and fill in your model choices.
+# API keys go in '.env' file (LiteLLM reads them automatically).
+#
+# .env example:
+#   AZURE_OPENAI_API_KEY=your-key
+#   AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
+#   OPENAI_API_KEY=your-key
+#   ANTHROPIC_API_KEY=your-key
+#   OLLAMA_API_BASE=http://localhost:11434
+
+# ── LLM Models ──────────────────────────────────────────────
+# All model strings use LiteLLM format.
+# See: https://docs.litellm.ai/docs/providers
+#
+# Examples:
+#   "gpt-4o-mini"                    → OpenAI
+#   "azure/gpt-4o"                   → Azure OpenAI
+#   "anthropic/claude-3.5-sonnet"    → Anthropic
+#   "ollama/llama3.2"                → Ollama (local)
+#   "together_ai/meta-llama/Llama-3-70b" → Together AI
+#   "groq/llama-3.1-8b-instant"     → Groq
+
+models:
+  # The model the prompt is being tuned FOR (runs the prompt + input).
+  # This is the model your optimized prompt will be used with in production.
+  target: "azure/gpt-4o-mini"
+
+  # Generates improved prompt candidates (all optimizers use this).
+  # A more capable model here usually produces better optimizations.
+  tuner: "azure/gpt-4o"
+
+  # Scores outputs, compares actual vs expected, analyzes prompt understanding.
+  # Should be reliable and consistent. Doesn't need to be the most expensive.
+  judge: "azure/gpt-4o-mini"
+
+# ── Optimization Settings ───────────────────────────────────
+
+optimization:
+  # Number of candidate prompts to keep per iteration (beam width)
+  beam_width: 3
+
+  # Maximum optimization rounds before stopping
+  max_iterations: 10
+
+  # Stop early if this score (0.0-1.0) is reached
+  target_score: 0.90
+
+  # Minimum score improvement to count as progress
+  convergence_threshold: 0.02
+
+  # Stop after this many rounds without improvement
+  convergence_patience: 3
+
+  # Number of examples to randomly sample per evaluation (per epoch)
+  batch_size: 5
+
+  # Which optimizers to run each iteration
+  # Available: meta_prompt, few_shot, adversarial, example_augmentor, clarity_rewriter
+  optimizers:
+    - meta_prompt
+    - few_shot
+    - adversarial
+    - example_augmentor
+    - clarity_rewriter

@@ -130,8 +130,11 @@ Selected (balanced):
 3. "reverse ''" - edge case coverage
 ```
 
-## Model Configuration
+## Configuration
 
-Uses LiteLLM for embeddings and scoring:
-- `AZURE_OPENAI_*` for Azure
-- `OLLAMA_API_BASE` for local
+Uses the **tuner** model from `promptune.yaml` for LLM-based scoring:
+
+```yaml
+models:
+  tuner: "azure/gpt-4o"  # Scores example relevance
+```

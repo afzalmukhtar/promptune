@@ -3,37 +3,22 @@ Beam Orchestrator - Core Promptune optimization algorithm.
 
 Coordinates evaluator and optimizers through beam search.
 Supports custom evaluation targets (black-box systems) via EvaluationTarget protocol.
+Uses PromptuneConfig for 3-model-role setup (target/tuner/judge).
 """
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
-from dotenv import load_dotenv
 
 from mcp_servers.evaluator.evaluator import evaluate_prompt
 from mcp_servers.few_shot_optimizer.optimizer import select_examples
 from mcp_servers.meta_prompt_optimizer.optimizer import optimize as meta_optimize
+from mcp_servers.utils.config import PromptuneConfig
 from mcp_servers.utils.logger import Component, logger
 from mcp_servers.utils.output_saver import save_optimization_result
 from schemas import EvaluationResult, TrainingExample
 
 if TYPE_CHECKING:
     from mcp_servers.targets.base import EvaluationTarget
-
-load_dotenv()
-
-
-@dataclass
-class BeamConfig:
-    """Configuration for beam search optimization."""
-
-    beam_width: int = 3
-    max_iterations: int = 10
-    target_score: float = 0.90
-    convergence_threshold: float = 0.02
-    convergence_patience: int = 3
-    optimizers: list[str] = field(default_factory=lambda: ["meta_prompt", "few_shot"])
 
 
 @dataclass
@@ -60,22 +45,11 @@ class OptimizationResult:
     history: list[IterationResult]
 
 
-def get_default_model() -> str:
-    """Get the default model from environment variables."""
-    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    azure_model = os.getenv("AZURE_OPENAI_MODEL")
-    if azure_endpoint and azure_model:
-        return f"azure/{azure_model}"
-    ollama_base = os.getenv("OLLAMA_API_BASE")
-    if ollama_base:
-        return "ollama/llama3.2"
-    return "gpt-4o-mini"
-
-
 async def _evaluate_candidates(
     prompts: list[str],
     examples: list[TrainingExample],
-    model: str,
+    config: PromptuneConfig,
+    iteration: int = 1,
     log_details: bool = False,
     target: "EvaluationTarget | None" = None,
 ) -> list[tuple[str, EvaluationResult]]:
@@ -85,7 +59,11 @@ async def _evaluate_candidates(
         if log_details:
             logger.stage(Component.EVALUATOR, f"Evaluating candidate {i + 1}/{len(prompts)}")
             logger.prompt_preview(prompt)
-        eval_result = await evaluate_prompt(prompt, examples, model, target=target)
+        eval_result = await evaluate_prompt(
+            prompt, examples, config=config,
+            target=target, iteration=iteration,
+            batch_size=config.optimization.batch_size,
+        )
         if log_details:
             logger.result("Score", f"{eval_result.score:.0%}")
             if eval_result.weaknesses:
@@ -99,7 +77,7 @@ async def _generate_meta_prompt_candidates(
     eval_result: EvaluationResult,
     num_candidates: int,
     cross_pollination: list[str] | None,
-    model: str,
+    tuner_model: str,
     log_details: bool = False,
 ) -> list[str]:
     """Generate candidates using meta-prompt optimizer."""
@@ -120,7 +98,8 @@ async def _generate_meta_prompt_candidates(
         feedback=feedback,
         num_candidates=num_candidates,
         cross_pollination_prompts=cross_pollination,
-        model=model,
+        model=tuner_model,
+        prompt_understanding=eval_result.prompt_understanding,
     )
     candidates = [c.prompt for c in result.candidates if c.prompt]
 
@@ -136,7 +115,7 @@ async def _generate_meta_prompt_candidates(
 async def _generate_few_shot_candidates(
     prompt: str,
     examples: list[TrainingExample],
-    model: str,
+    tuner_model: str,
     log_details: bool = False,
 ) -> list[str]:
     """Generate candidate by optimizing few-shot examples."""
@@ -152,7 +131,7 @@ async def _generate_few_shot_candidates(
         example_pool=examples,
         num_examples=min(3, len(examples)),
         strategy="balanced",
-        model=model,
+        model=tuner_model,
     )
 
     if log_details and result.selected_examples:
@@ -162,14 +141,108 @@ async def _generate_few_shot_candidates(
     return [result.prompt_with_examples] if result.prompt_with_examples else []
 
 
+async def _generate_adversarial_candidates(
+    prompt: str,
+    eval_result: EvaluationResult,
+    tuner_model: str,
+    negative_examples: list | None = None,
+    log_details: bool = False,
+) -> list[str]:
+    """Generate candidates using adversarial optimizer."""
+    try:
+        from mcp_servers.adversarial_optimizer.optimizer import optimize as adversarial_optimize
+    except ImportError:
+        return []
+
+    if log_details:
+        logger.stage(Component.ADVERSARIAL_OPTIMIZER, "Adversarial prompt hardening")
+
+    feedback = {
+        "score": eval_result.score,
+        "weaknesses": eval_result.weaknesses,
+        "suggestions": eval_result.suggestions,
+        "strengths": eval_result.strengths,
+    }
+    result = await adversarial_optimize(
+        prompt=prompt,
+        feedback=feedback,
+        model=tuner_model,
+        negative_examples=negative_examples,
+        prompt_understanding=eval_result.prompt_understanding,
+    )
+    candidates = [c.prompt for c in result.candidates if c.prompt]
+
+    if log_details:
+        logger.success(f"Generated {len(candidates)} hardened candidate(s)")
+
+    return candidates
+
+
+async def _generate_example_augmentor_candidates(
+    prompt: str,
+    examples: list[TrainingExample],
+    tuner_model: str,
+    negative_examples: list | None = None,
+    log_details: bool = False,
+) -> list[str]:
+    """Generate candidates using example augmentor (positive + negative examples)."""
+    try:
+        from mcp_servers.example_augmentor.optimizer import augment as example_augment
+    except ImportError:
+        return []
+
+    if log_details:
+        logger.stage(Component.EXAMPLE_AUGMENTOR, "Augmenting with positive/negative examples")
+
+    result = await example_augment(
+        prompt=prompt,
+        positive_examples=examples,
+        negative_examples=negative_examples,
+        model=tuner_model,
+    )
+
+    if log_details and result:
+        logger.success("Generated augmented prompt candidate")
+
+    return [result] if result else []
+
+
+async def _generate_clarity_candidates(
+    prompt: str,
+    eval_result: EvaluationResult,
+    tuner_model: str,
+    log_details: bool = False,
+) -> list[str]:
+    """Generate candidates using clarity rewriter."""
+    try:
+        from mcp_servers.clarity_rewriter.optimizer import rewrite as clarity_rewrite
+    except ImportError:
+        return []
+
+    if log_details:
+        logger.stage(Component.CLARITY_REWRITER, "Rewriting for clarity")
+
+    result = await clarity_rewrite(
+        prompt=prompt,
+        model=tuner_model,
+        prompt_understanding=eval_result.prompt_understanding,
+    )
+    candidates = [result] if result else []
+
+    if log_details and candidates:
+        logger.success("Generated clarity-rewritten candidate")
+
+    return candidates
+
+
 async def optimize_beam(
     initial_prompt: str,
     training_examples: list[TrainingExample],
-    config: BeamConfig | None = None,
-    model: str | None = None,
+    config: PromptuneConfig,
     verbose: bool = True,
     target: "EvaluationTarget | None" = None,
     save_output: bool | str = False,
+    negative_examples: list | None = None,
 ) -> OptimizationResult:
     """
     Run beam search optimization on a prompt.
@@ -177,29 +250,34 @@ async def optimize_beam(
     Args:
         initial_prompt: Starting prompt to optimize
         training_examples: Examples to evaluate against
-        config: Beam search configuration
-        model: Model to use for all components
+        config: PromptuneConfig with model roles and optimization settings
         verbose: Enable detailed logging
         target: Optional custom evaluation target (black-box system).
                 If provided, uses target.invoke(prompt, input) for evaluation.
         save_output: Save result to disk. True saves to 'outputs/', string specifies dir.
+        negative_examples: Optional negative examples for adversarial/augmentor optimizers
 
     Returns:
         OptimizationResult with best prompt and optimization history
     """
-    config = config or BeamConfig()
-    model = model or get_default_model()
+    opt = config.optimization
+    tuner_model = config.models.tuner
     logger.verbose = verbose
 
     if verbose:
         logger.header("Promptune - Beam Search Prompt Tuning")
         logger.stage(Component.ORCHESTRATOR, "Initializing optimization")
-        logger.info(f"Model: {model}")
-        logger.info(f"Beam width: {config.beam_width}")
-        logger.info(f"Max iterations: {config.max_iterations}")
-        logger.info(f"Target score: {config.target_score:.0%}")
-        logger.info(f"Optimizers: {', '.join(config.optimizers)}")
+        logger.info(f"Target model: {config.models.target}")
+        logger.info(f"Tuner model: {tuner_model}")
+        logger.info(f"Judge model: {config.models.judge}")
+        logger.info(f"Beam width: {opt.beam_width}")
+        logger.info(f"Max iterations: {opt.max_iterations}")
+        logger.info(f"Target score: {opt.target_score:.0%}")
+        logger.info(f"Batch size: {opt.batch_size}")
+        logger.info(f"Optimizers: {', '.join(opt.optimizers)}")
         logger.info(f"Training examples: {len(training_examples)}")
+        if negative_examples:
+            logger.info(f"Negative examples: {len(negative_examples)}")
         if target:
             logger.info(f"Target: {target}")
 
@@ -208,16 +286,17 @@ async def optimize_beam(
     prev_best_score = 0.0
     no_improvement_count = 0
 
-    for iteration in range(1, config.max_iterations + 1):
+    for iteration in range(1, opt.max_iterations + 1):
         if verbose:
-            logger.iteration_start(iteration, config.max_iterations)
+            logger.iteration_start(iteration, opt.max_iterations)
 
         # Evaluate current beam
         if verbose:
             logger.stage(Component.EVALUATOR, f"Evaluating beam ({len(beam)} prompts)")
 
         evaluated = await _evaluate_candidates(
-            beam, training_examples, model, log_details=verbose, target=target
+            beam, training_examples, config,
+            iteration=iteration, log_details=verbose, target=target,
         )
         scores = [e[1].score for e in evaluated]
         best_idx = scores.index(max(scores))
@@ -231,6 +310,10 @@ async def optimize_beam(
                 logger.detail(f"Strengths: {', '.join(best_eval.strengths[:2])}")
             if best_eval.weaknesses:
                 logger.detail(f"Weaknesses: {', '.join(best_eval.weaknesses[:2])}")
+            if best_eval.prompt_understanding:
+                logger.detail(
+                    f"Prompt compliance: {best_eval.prompt_understanding.overall_compliance:.0%}"
+                )
 
         # Record iteration
         iter_result = IterationResult(
@@ -243,16 +326,16 @@ async def optimize_beam(
         )
 
         # Check target score reached
-        if best_score >= config.target_score:
+        if best_score >= opt.target_score:
             if verbose:
-                logger.success(f"🎉 Target score {config.target_score:.0%} reached!")
+                logger.success(f"Target score {opt.target_score:.0%} reached!")
             history.append(iter_result)
             result = OptimizationResult(
                 best_prompt=best_prompt,
                 best_score=best_score,
                 iterations=iteration,
                 converged=True,
-                convergence_reason=f"Target score {config.target_score} reached",
+                convergence_reason=f"Target score {opt.target_score} reached",
                 history=history,
             )
             if save_output:
@@ -264,18 +347,18 @@ async def optimize_beam(
 
         # Check convergence (no improvement)
         improvement = best_score - prev_best_score
-        if improvement < config.convergence_threshold:
+        if improvement < opt.convergence_threshold:
             no_improvement_count += 1
             if verbose:
                 logger.warning(
-                    f"No significant improvement ({no_improvement_count}/{config.convergence_patience})"
+                    f"No significant improvement ({no_improvement_count}/{opt.convergence_patience})"
                 )
         else:
             no_improvement_count = 0
             if verbose and iteration > 1:
                 logger.success(f"Improved by {improvement:.1%}")
 
-        if no_improvement_count >= config.convergence_patience:
+        if no_improvement_count >= opt.convergence_patience:
             if verbose:
                 logger.info("Converged - no further improvement possible")
             history.append(iter_result)
@@ -284,7 +367,7 @@ async def optimize_beam(
                 best_score=best_score,
                 iterations=iteration,
                 converged=True,
-                convergence_reason=f"No improvement for {config.convergence_patience} iterations",
+                convergence_reason=f"No improvement for {opt.convergence_patience} iterations",
                 history=history,
             )
             if save_output:
@@ -310,45 +393,78 @@ async def optimize_beam(
                 logger.info(f"Processing beam member {prompt_idx + 1}/{len(evaluated)}")
 
             # Meta-prompt optimizer
-            if "meta_prompt" in config.optimizers:
+            if "meta_prompt" in opt.optimizers:
                 meta_candidates = await _generate_meta_prompt_candidates(
                     prompt=prompt,
                     eval_result=eval_result,
                     num_candidates=2,
                     cross_pollination=cross_poll if prompt != best_prompt else None,
-                    model=model,
+                    tuner_model=tuner_model,
                     log_details=verbose,
                 )
                 candidates.extend(meta_candidates)
 
             # Few-shot optimizer
-            if "few_shot" in config.optimizers:
+            if "few_shot" in opt.optimizers:
                 few_shot_candidates = await _generate_few_shot_candidates(
                     prompt=prompt,
                     examples=training_examples,
-                    model=model,
+                    tuner_model=tuner_model,
                     log_details=verbose,
                 )
                 candidates.extend(few_shot_candidates)
+
+            # Adversarial optimizer
+            if "adversarial" in opt.optimizers:
+                adv_candidates = await _generate_adversarial_candidates(
+                    prompt=prompt,
+                    eval_result=eval_result,
+                    tuner_model=tuner_model,
+                    negative_examples=negative_examples,
+                    log_details=verbose,
+                )
+                candidates.extend(adv_candidates)
+
+            # Example augmentor
+            if "example_augmentor" in opt.optimizers:
+                aug_candidates = await _generate_example_augmentor_candidates(
+                    prompt=prompt,
+                    examples=training_examples,
+                    tuner_model=tuner_model,
+                    negative_examples=negative_examples,
+                    log_details=verbose,
+                )
+                candidates.extend(aug_candidates)
+
+            # Clarity rewriter
+            if "clarity_rewriter" in opt.optimizers:
+                clarity_candidates = await _generate_clarity_candidates(
+                    prompt=prompt,
+                    eval_result=eval_result,
+                    tuner_model=tuner_model,
+                    log_details=verbose,
+                )
+                candidates.extend(clarity_candidates)
 
         iter_result.candidates_generated = len(candidates)
 
         if verbose:
             logger.stage(
                 Component.ORCHESTRATOR,
-                f"Selecting top {config.beam_width} from {len(candidates)} candidates",
+                f"Selecting top {opt.beam_width} from {len(candidates)} candidates",
             )
 
         # Combine beam + candidates and evaluate
         all_prompts = list(set(beam + candidates))  # Dedupe
         all_evaluated = await _evaluate_candidates(
-            all_prompts, training_examples, model, target=target
+            all_prompts, training_examples, config,
+            iteration=iteration, target=target,
         )
         iter_result.candidates_evaluated = len(all_evaluated)
 
         # Select top-k for new beam
         all_evaluated.sort(key=lambda x: x[1].score, reverse=True)
-        beam = [e[0] for e in all_evaluated[: config.beam_width]]
+        beam = [e[0] for e in all_evaluated[: opt.beam_width]]
 
         if verbose:
             new_best = all_evaluated[0][1].score
@@ -360,7 +476,10 @@ async def optimize_beam(
     if verbose:
         logger.stage(Component.ORCHESTRATOR, "Max iterations reached - final evaluation")
 
-    final_evaluated = await _evaluate_candidates(beam, training_examples, model, target=target)
+    final_evaluated = await _evaluate_candidates(
+        beam, training_examples, config,
+        iteration=opt.max_iterations, target=target,
+    )
     final_scores = [e[1].score for e in final_evaluated]
     best_idx = final_scores.index(max(final_scores))
 
@@ -371,7 +490,7 @@ async def optimize_beam(
     result = OptimizationResult(
         best_prompt=beam[best_idx],
         best_score=final_scores[best_idx],
-        iterations=config.max_iterations,
+        iterations=opt.max_iterations,
         converged=False,
         convergence_reason="Max iterations reached",
         history=history,
@@ -387,8 +506,8 @@ async def optimize_beam(
 async def step(
     beam: list[str],
     training_examples: list[TrainingExample],
+    config: PromptuneConfig,
     optimizers: list[str] | None = None,
-    model: str | None = None,
 ) -> dict:
     """
     Run a single optimization step.
@@ -396,17 +515,17 @@ async def step(
     Args:
         beam: Current beam of prompts
         training_examples: Examples to evaluate against
-        optimizers: Which optimizers to use
-        model: Model to use
+        config: PromptuneConfig with model roles
+        optimizers: Which optimizers to use (overrides config)
 
     Returns:
         Dict with new beam, scores, and stats
     """
-    model = model or get_default_model()
-    optimizers = optimizers or ["meta_prompt", "few_shot"]
+    optimizers = optimizers or config.optimization.optimizers
+    tuner_model = config.models.tuner
 
     # Evaluate current beam
-    evaluated = await _evaluate_candidates(beam, training_examples, model)
+    evaluated = await _evaluate_candidates(beam, training_examples, config)
     scores = [e[1].score for e in evaluated]
     best_idx = scores.index(max(scores))
     best_prompt = beam[best_idx]
@@ -422,7 +541,7 @@ async def step(
                 eval_result=eval_result,
                 num_candidates=2,
                 cross_pollination=cross_poll if prompt != best_prompt else None,
-                model=model,
+                tuner_model=tuner_model,
             )
             candidates.extend(meta_candidates)
 
@@ -430,13 +549,13 @@ async def step(
             few_shot_candidates = await _generate_few_shot_candidates(
                 prompt=prompt,
                 examples=training_examples,
-                model=model,
+                tuner_model=tuner_model,
             )
             candidates.extend(few_shot_candidates)
 
     # Evaluate all and select top
     all_prompts = list(set(beam + candidates))
-    all_evaluated = await _evaluate_candidates(all_prompts, training_examples, model)
+    all_evaluated = await _evaluate_candidates(all_prompts, training_examples, config)
     all_evaluated.sort(key=lambda x: x[1].score, reverse=True)
 
     new_beam = [e[0] for e in all_evaluated[: len(beam)]]

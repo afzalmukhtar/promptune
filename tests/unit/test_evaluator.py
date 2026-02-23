@@ -17,7 +17,6 @@ class TestEvaluatorImports:
         from mcp_servers.evaluator import evaluator
 
         assert hasattr(evaluator, "evaluate_prompt")
-        assert hasattr(evaluator, "get_default_model")
         assert hasattr(evaluator, "format_examples")
 
     def test_server_module_imports(self):
@@ -83,16 +82,18 @@ class TestFormatExamples:
         assert "No training examples provided" in result
 
 
-class TestGetDefaultModel:
-    """Test the get_default_model function."""
+class TestConfigModelResolution:
+    """Test model configuration via PromptuneConfig."""
 
-    def test_returns_string(self):
-        """Test that get_default_model returns a string."""
-        from mcp_servers.evaluator.evaluator import get_default_model
+    def test_default_models(self):
+        """PromptuneConfig should provide default model strings for all roles."""
+        from mcp_servers.utils.config import PromptuneConfig
 
-        model = get_default_model()
-        assert isinstance(model, str)
-        assert len(model) > 0
+        config = PromptuneConfig()
+        assert isinstance(config.models.target, str)
+        assert isinstance(config.models.tuner, str)
+        assert isinstance(config.models.judge, str)
+        assert len(config.models.judge) > 0
 
 
 class TestEvaluationResultSchema:
@@ -118,6 +119,41 @@ class TestEvaluationResultSchema:
         assert len(result.strengths) == 2
         assert result.clarity_score == 0.9
 
+    def test_evaluation_result_with_understanding(self):
+        """Test EvaluationResult with prompt understanding field."""
+        from schemas import PromptSectionAnalysis, PromptUnderstanding
+
+        understanding = PromptUnderstanding(
+            well_followed=[
+                PromptSectionAnalysis(
+                    section="Role definition",
+                    evidence="Acted as coding assistant",
+                    score=0.9,
+                )
+            ],
+            poorly_followed=[
+                PromptSectionAnalysis(
+                    section="Output format",
+                    evidence="Did not use markdown",
+                    score=0.3,
+                    reason="Format instruction was ambiguous",
+                )
+            ],
+            overall_compliance=0.6,
+        )
+
+        result = EvaluationResult(
+            prompt="Test prompt",
+            score=0.7,
+            passed=True,
+            feedback="Decent prompt",
+            prompt_understanding=understanding,
+        )
+
+        assert result.prompt_understanding is not None
+        assert result.prompt_understanding.overall_compliance == 0.6
+        assert len(result.prompt_understanding.poorly_followed) == 1
+
 
 # Integration tests that require API keys - marked to skip if not configured
 @pytest.mark.asyncio
@@ -128,6 +164,7 @@ class TestEvaluatorIntegration:
     async def test_evaluate_prompt_basic(self):
         """Test basic evaluation works end-to-end."""
         from mcp_servers.evaluator.evaluator import evaluate_prompt
+        from mcp_servers.utils.config import PromptuneConfig
 
         examples = [
             TrainingExample(
@@ -136,9 +173,12 @@ class TestEvaluatorIntegration:
             )
         ]
 
+        config = PromptuneConfig()
+
         result = await evaluate_prompt(
             prompt="You are a helpful coding assistant. Write clean, working code.",
             training_examples=examples,
+            config=config,
         )
 
         assert 0.0 <= result.score <= 1.0
@@ -149,6 +189,7 @@ class TestEvaluatorIntegration:
     async def test_evaluate_vague_prompt(self):
         """Test that vague prompts get lower scores."""
         from mcp_servers.evaluator.evaluator import evaluate_prompt
+        from mcp_servers.utils.config import PromptuneConfig
 
         examples = [
             TrainingExample(
@@ -157,9 +198,12 @@ class TestEvaluatorIntegration:
             )
         ]
 
+        config = PromptuneConfig()
+
         result = await evaluate_prompt(
             prompt="Do the thing",  # Intentionally vague
             training_examples=examples,
+            config=config,
         )
 
         # Vague prompt should have weaknesses or lower score

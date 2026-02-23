@@ -2,16 +2,18 @@
 Meta-Prompt Optimizer - LLM-based prompt improvement.
 
 Uses an LLM to analyze feedback and generate targeted prompt improvements.
+Now includes prompt understanding injection to target poorly-understood sections.
+Uses tuner model from PromptuneConfig via call_llm_structured.
 """
 
-import json
-import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from dotenv import load_dotenv
-from litellm import acompletion
+from mcp_servers.utils.llm import call_llm_structured
+from schemas import OptimizationCandidates, PromptUnderstanding
 
-load_dotenv()
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -46,6 +48,8 @@ Score: {score}/100
 ### STRENGTHS TO KEEP:
 {strengths}
 
+{prompt_understanding_section}
+
 {cross_pollination_section}
 
 ## INSTRUCTIONS:
@@ -66,20 +70,6 @@ Generate {num_candidates} improved prompt(s). Each MUST:
 [ERROR HANDLING] - What to do when things go wrong
 ```
 
-## OUTPUT FORMAT:
-```json
-{{
-  "candidates": [
-    {{
-      "prompt": "The COMPLETE improved prompt with all sections...",
-      "strategy": "What improvements were made",
-      "addressed_weaknesses": ["list each weakness fixed"],
-      "implemented_suggestions": ["list each suggestion implemented"]
-    }}
-  ]
-}}
-```
-
 IMPORTANT: The improved prompt must be significantly longer and more detailed than the original. Include concrete examples."""
 
 
@@ -95,16 +85,46 @@ Look for:
 """
 
 
-def get_default_model() -> str:
-    """Get the default model from environment variables."""
-    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    azure_model = os.getenv("AZURE_OPENAI_MODEL")
-    if azure_endpoint and azure_model:
-        return f"azure/{azure_model}"
-    ollama_base = os.getenv("OLLAMA_API_BASE")
-    if ollama_base:
-        return "ollama/llama3.2"
-    return "gpt-4o-mini"
+PROMPT_UNDERSTANDING_SECTION = """
+## PROMPT UNDERSTANDING ANALYSIS:
+The following analysis shows how well the target LLM understood each part of the prompt.
+
+### WELL FOLLOWED (reinforce these patterns):
+{well_followed}
+
+### POORLY FOLLOWED (fix these — the LLM struggled with them):
+{poorly_followed}
+
+Overall compliance: {overall_compliance:.0%}
+
+IMPORTANT: Focus especially on rewriting the poorly-followed sections to be clearer and more explicit.
+The well-followed sections are working — keep their patterns but strengthen the weak areas.
+"""
+
+
+def _build_understanding_section(understanding: PromptUnderstanding | None) -> str:
+    """Build the prompt understanding section for the optimization prompt."""
+    if not understanding:
+        return ""
+
+    well_lines = []
+    for s in understanding.well_followed:
+        well_lines.append(f"- \"{s.section}\" (score: {s.score:.0%}) — Evidence: {s.evidence}")
+
+    poorly_lines = []
+    for s in understanding.poorly_followed:
+        poorly_lines.append(
+            f"- \"{s.section}\" (score: {s.score:.0%}) — Reason: {s.reason}"
+        )
+
+    if not well_lines and not poorly_lines:
+        return ""
+
+    return PROMPT_UNDERSTANDING_SECTION.format(
+        well_followed="\n".join(well_lines) or "None identified",
+        poorly_followed="\n".join(poorly_lines) or "None identified",
+        overall_compliance=understanding.overall_compliance,
+    )
 
 
 async def optimize(
@@ -113,6 +133,7 @@ async def optimize(
     num_candidates: int = 3,
     cross_pollination_prompts: list[str] | None = None,
     model: str | None = None,
+    prompt_understanding: PromptUnderstanding | None = None,
 ) -> OptimizationResult:
     """
     Generate improved prompt candidates using LLM meta-reasoning.
@@ -122,12 +143,14 @@ async def optimize(
         feedback: Evaluation feedback dict with score, weaknesses, suggestions, strengths
         num_candidates: Number of improved variants to generate
         cross_pollination_prompts: Optional list of successful prompts to learn from
-        model: Model to use (default: from env config)
+        model: Tuner model to use (from config)
+        prompt_understanding: Optional analysis of which prompt sections were followed/ignored
 
     Returns:
         OptimizationResult with list of improved candidates
     """
-    model = model or get_default_model()
+    if not model:
+        raise ValueError("Model is required. Pass the tuner model from PromptuneConfig.")
 
     # Build cross-pollination section if provided
     cross_section = ""
@@ -136,6 +159,9 @@ async def optimize(
             f"Prompt {i+1}:\n{p}" for i, p in enumerate(cross_pollination_prompts)
         )
         cross_section = CROSS_POLLINATION_SECTION.format(prompts=prompts_text)
+
+    # Build prompt understanding section
+    understanding_section = _build_understanding_section(prompt_understanding)
 
     # Format feedback
     score = feedback.get("score", 0)
@@ -154,32 +180,25 @@ async def optimize(
         suggestions="\n".join(f"- {s}" for s in suggestions) or "None provided",
         strengths="\n".join(f"- {s}" for s in strengths) or "None identified",
         cross_pollination_section=cross_section,
+        prompt_understanding_section=understanding_section,
         num_candidates=num_candidates,
     )
 
-    # Call LLM
-    response = await acompletion(
+    # Call LLM with structured output
+    result = await call_llm_structured(
         model=model,
         messages=[{"role": "user", "content": opt_prompt}],
-        response_format={"type": "json_object"},
+        response_model=OptimizationCandidates,
         temperature=0.7,  # Higher temperature for diverse candidates
     )
 
-    # Parse response
-    text = response.choices[0].message.content
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # Return empty result on parse failure
-        return OptimizationResult(candidates=[], original_prompt=prompt)
-
-    # Build candidates
+    # Build candidates from structured response
     candidates = []
-    for c in data.get("candidates", []):
+    for c in result.candidates:
         candidates.append(OptimizedCandidate(
-            prompt=c.get("prompt", ""),
-            strategy=c.get("strategy", "Unknown strategy"),
-            addressed_weaknesses=c.get("addressed_weaknesses", []),
+            prompt=c.prompt,
+            strategy=c.strategy,
+            addressed_weaknesses=c.addressed_weaknesses,
         ))
 
     return OptimizationResult(

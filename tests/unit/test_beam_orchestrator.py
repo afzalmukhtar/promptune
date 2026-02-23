@@ -11,19 +11,15 @@ class TestOrchestratorImports:
     def test_orchestrator_module_imports(self):
         """Test core orchestrator module imports."""
         from mcp_servers.beam_orchestrator.orchestrator import (
-            BeamConfig,
             IterationResult,
             OptimizationResult,
-            get_default_model,
             optimize_beam,
             step,
         )
         assert optimize_beam is not None
         assert step is not None
-        assert BeamConfig is not None
         assert IterationResult is not None
         assert OptimizationResult is not None
-        assert get_default_model is not None
 
     def test_server_module_imports(self):
         """Test MCP server module imports."""
@@ -37,34 +33,36 @@ class TestOrchestratorImports:
         assert optimization_step is not None
 
 
-class TestBeamConfig:
-    """Test BeamConfig dataclass."""
+class TestPromptuneConfig:
+    """Test PromptuneConfig used by orchestrator."""
 
     def test_default_config(self):
         """Test default configuration values."""
-        from mcp_servers.beam_orchestrator.orchestrator import BeamConfig
-        config = BeamConfig()
-        assert config.beam_width == 3
-        assert config.max_iterations == 10
-        assert config.target_score == 0.90
-        assert config.convergence_threshold == 0.02
-        assert config.convergence_patience == 3
-        assert "meta_prompt" in config.optimizers
-        assert "few_shot" in config.optimizers
+        from mcp_servers.utils.config import PromptuneConfig
+        config = PromptuneConfig()
+        assert config.optimization.beam_width == 3
+        assert config.optimization.max_iterations == 10
+        assert config.optimization.target_score == 0.90
+        assert config.optimization.convergence_threshold == 0.02
+        assert config.optimization.convergence_patience == 3
+        assert "meta_prompt" in config.optimization.optimizers
+        assert "few_shot" in config.optimization.optimizers
 
     def test_custom_config(self):
         """Test custom configuration."""
-        from mcp_servers.beam_orchestrator.orchestrator import BeamConfig
-        config = BeamConfig(
-            beam_width=5,
-            max_iterations=20,
-            target_score=0.95,
-            optimizers=["meta_prompt"],
+        from mcp_servers.utils.config import OptimizationConfig, PromptuneConfig
+        config = PromptuneConfig(
+            optimization=OptimizationConfig(
+                beam_width=5,
+                max_iterations=20,
+                target_score=0.95,
+                optimizers=["meta_prompt"],
+            ),
         )
-        assert config.beam_width == 5
-        assert config.max_iterations == 20
-        assert config.target_score == 0.95
-        assert config.optimizers == ["meta_prompt"]
+        assert config.optimization.beam_width == 5
+        assert config.optimization.max_iterations == 20
+        assert config.optimization.target_score == 0.95
+        assert config.optimization.optimizers == ["meta_prompt"]
 
 
 class TestIterationResult:
@@ -118,15 +116,17 @@ class TestOptimizationResult:
         assert len(result.history) == 1
 
 
-class TestGetDefaultModel:
-    """Test model configuration."""
+class TestConfigModelResolution:
+    """Test model configuration via PromptuneConfig."""
 
-    def test_returns_string(self):
-        """get_default_model should return a string."""
-        from mcp_servers.beam_orchestrator.orchestrator import get_default_model
-        result = get_default_model()
-        assert isinstance(result, str)
-        assert len(result) > 0
+    def test_default_models(self):
+        """PromptuneConfig should have default model strings."""
+        from mcp_servers.utils.config import PromptuneConfig
+        config = PromptuneConfig()
+        assert isinstance(config.models.target, str)
+        assert isinstance(config.models.tuner, str)
+        assert isinstance(config.models.judge, str)
+        assert len(config.models.target) > 0
 
 
 class TestBeamOrchestrationIntegration:
@@ -136,10 +136,8 @@ class TestBeamOrchestrationIntegration:
     @pytest.mark.asyncio
     async def test_optimize_beam_basic(self):
         """Test basic beam optimization."""
-        from mcp_servers.beam_orchestrator.orchestrator import (
-            BeamConfig,
-            optimize_beam,
-        )
+        from mcp_servers.beam_orchestrator.orchestrator import optimize_beam
+        from mcp_servers.utils.config import PromptuneConfig
 
         examples = [
             TrainingExample(
@@ -148,11 +146,10 @@ class TestBeamOrchestrationIntegration:
             ),
         ]
 
-        config = BeamConfig(
-            beam_width=2,
-            max_iterations=2,
-            target_score=0.95,
-        )
+        config = PromptuneConfig()
+        config.optimization.beam_width = 2
+        config.optimization.max_iterations = 2
+        config.optimization.target_score = 0.95
 
         result = await optimize_beam(
             initial_prompt="You are a helper.",
@@ -169,6 +166,7 @@ class TestBeamOrchestrationIntegration:
     async def test_step_basic(self):
         """Test single optimization step."""
         from mcp_servers.beam_orchestrator.orchestrator import step
+        from mcp_servers.utils.config import PromptuneConfig
 
         examples = [
             TrainingExample(
@@ -177,9 +175,12 @@ class TestBeamOrchestrationIntegration:
             ),
         ]
 
+        config = PromptuneConfig()
+
         result = await step(
             beam=["You are a calculator."],
             training_examples=examples,
+            config=config,
             optimizers=["meta_prompt"],
         )
 

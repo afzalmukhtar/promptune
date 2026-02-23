@@ -125,8 +125,21 @@ The optimizer will:
 2. Adapt relevant patterns to the current prompt
 3. Create hybrid candidates combining multiple approaches
 
-## Model Configuration
+## Prompt Understanding Integration
 
-Uses LiteLLM. Supports:
-- `AZURE_OPENAI_*` environment variables
-- `OLLAMA_API_BASE` for local models
+When the evaluator provides a PromptUnderstanding analysis, the meta-prompt optimizer injects it into the feedback context. This allows it to specifically target sections the LLM ignored or misinterpreted.
+
+```
+Poorly followed sections:
+- "Output format" (compliance: 30%) — Format spec was ambiguous
+- "Error handling" (compliance: 20%) — No error handling instructions found
+```
+
+## Configuration
+
+Uses the **tuner** model from `promptune.yaml`:
+
+```yaml
+models:
+  tuner: "azure/gpt-4o"  # Generates improved prompt candidates
+```

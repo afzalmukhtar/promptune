@@ -2,12 +2,12 @@
 Promptune Core Data Models.
 
 Defines all Pydantic schemas used across the system:
-- TrainingExample: Input/output training pairs
+- TrainingExample / NegativeTrainingExample / TrainingDataset: Input data
 - PromptCandidate: A prompt with evaluation results
 - EvaluationResult: Score and feedback from evaluator
-- BeamConfig: Beam search configuration
-- BeamState: Current beam state
-- OptimizationResult: Final optimization output
+- PromptSectionAnalysis / PromptUnderstanding: Prompt understanding feedback
+- BeamConfig / BeamState / OptimizationResult: Beam search types
+- OutputComparison, StructuralAnalysis, etc.: Structured LLM response models
 """
 
 from datetime import datetime
@@ -25,6 +25,29 @@ class TrainingExample(BaseModel):
     input: str = Field(..., description="Input text for the task")
     expected_output: str = Field(..., description="Expected output for this input")
     metadata: dict = Field(default_factory=dict, description="Optional metadata")
+
+
+class NegativeTrainingExample(BaseModel):
+    """A negative training example showing bad output and why it's bad."""
+
+    sample_prompt: str = Field(..., description="The prompt that produced the bad output")
+    input: str = Field(..., description="The input given")
+    bad_output: str = Field(..., description="The bad output produced")
+    reason_why_bad: str = Field(..., description="Why this output is bad")
+
+
+class TrainingDataset(BaseModel):
+    """Unified dataset holding both positive and negative training examples."""
+
+    examples: list[TrainingExample] = Field(default_factory=list, description="Positive examples")
+    negative_examples: list[NegativeTrainingExample] = Field(
+        default_factory=list, description="Negative examples showing what to avoid"
+    )
+
+    @classmethod
+    def from_examples(cls, examples: list[TrainingExample]) -> "TrainingDataset":
+        """Create a dataset from a list of positive examples (backward compat)."""
+        return cls(examples=examples)
 
 
 class PromptCandidate(BaseModel):
@@ -72,6 +95,11 @@ class EvaluationResult(BaseModel):
     task_alignment_score: float | None = Field(default=None, ge=0.0, le=1.0)
     example_quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
+    # Prompt understanding analysis
+    prompt_understanding: "PromptUnderstanding | None" = Field(
+        default=None, description="Analysis of which prompt sections were followed/ignored"
+    )
+
 
 # =============================================================================
 # Step 1.5: Beam State Schemas
@@ -118,3 +146,133 @@ class OptimizationResult(BaseModel):
     total_candidates_evaluated: int = Field(..., ge=0, description="Total evaluated")
     converged: bool = Field(..., description="Whether optimization converged")
     convergence_reason: str = Field(..., description="Why optimization stopped")
+
+
+# =============================================================================
+# Prompt Understanding Schemas
+# =============================================================================
+
+
+class PromptSectionAnalysis(BaseModel):
+    """Analysis of how well a specific prompt section was followed by the LLM."""
+
+    section: str = Field(..., description="Which part/instruction of the prompt")
+    evidence: str = Field(..., description="What the LLM actually did for this section")
+    score: float = Field(..., ge=0.0, le=1.0, description="How well followed (0=ignored, 1=perfect)")
+    reason: str = Field(default="", description="Why it was poorly followed, if applicable")
+
+
+class PromptUnderstanding(BaseModel):
+    """Full analysis of prompt understanding by the target LLM."""
+
+    well_followed: list[PromptSectionAnalysis] = Field(
+        default_factory=list, description="Prompt sections that were well followed"
+    )
+    poorly_followed: list[PromptSectionAnalysis] = Field(
+        default_factory=list, description="Prompt sections that were poorly followed or ignored"
+    )
+    overall_compliance: float = Field(
+        ..., ge=0.0, le=1.0, description="Overall compliance score"
+    )
+
+
+# =============================================================================
+# Structured LLM Response Models (for tool calling)
+# =============================================================================
+
+
+class OutputComparison(BaseModel):
+    """Compare actual LLM output to expected output."""
+
+    semantic_match: bool = Field(..., description="Does actual output convey same meaning as expected?")
+    format_match: bool = Field(..., description="Is the format similar?")
+    correctness: bool = Field(..., description="Is the actual output factually/functionally correct?")
+    completeness: bool = Field(..., description="Does actual output fully address the task?")
+    explanation: str = Field(..., description="Brief explanation of differences if any")
+
+
+class StructuralAnalysis(BaseModel):
+    """Analyze prompt structure for required components."""
+
+    has_role: bool = Field(..., description="Defines WHO the AI should be?")
+    has_task: bool = Field(..., description="Explains WHAT to do?")
+    has_format: bool = Field(..., description="Specifies HOW to format output?")
+    has_constraints: bool = Field(..., description="Sets boundaries or rules?")
+    has_examples: bool = Field(..., description="Includes examples?")
+
+
+class AdversarialAnalysis(BaseModel):
+    """Adversarial critique finding weaknesses in a prompt."""
+
+    weaknesses: list[str] = Field(..., description="Specific weaknesses found")
+    suggestions: list[str] = Field(..., description="Actionable suggestions for fixes")
+    assessment: str = Field(..., description="One sentence harsh but fair assessment")
+
+
+class ExampleScore(BaseModel):
+    """Score for a single training example."""
+
+    index: int = Field(..., description="Index of the example in the pool")
+    relevance: float = Field(..., ge=0.0, le=1.0, description="How relevant to the task")
+    diversity: float = Field(..., ge=0.0, le=1.0, description="How different from typical cases")
+    complexity: float = Field(..., ge=0.0, le=1.0, description="How complex the example is")
+
+
+class ExampleScores(BaseModel):
+    """Scores for all candidate examples."""
+
+    scores: list[ExampleScore] = Field(..., description="Scores for each example")
+
+
+class CandidateOutput(BaseModel):
+    """A single optimized prompt candidate from an optimizer."""
+
+    prompt: str = Field(..., description="The complete improved prompt")
+    strategy: str = Field(..., description="What improvements were made")
+    addressed_weaknesses: list[str] = Field(
+        default_factory=list, description="List of weaknesses fixed"
+    )
+
+
+class OptimizationCandidates(BaseModel):
+    """Result from an optimizer containing multiple candidate prompts."""
+
+    candidates: list[CandidateOutput] = Field(..., description="List of improved prompt candidates")
+
+
+class PromptUnderstandingResponse(BaseModel):
+    """LLM response for prompt understanding analysis."""
+
+    well_followed: list[dict] = Field(
+        default_factory=list, description="Sections well followed: each with 'section', 'evidence', 'score'"
+    )
+    poorly_followed: list[dict] = Field(
+        default_factory=list, description="Sections poorly followed: each with 'section', 'evidence', 'score', 'reason'"
+    )
+    overall_compliance: float = Field(..., ge=0.0, le=1.0, description="Overall compliance score")
+
+
+class ClarityAnalysis(BaseModel):
+    """Identify unclear sentences in a prompt."""
+
+    unclear_sentences: list[str] = Field(..., description="Sentences that are ambiguous or unclear")
+    rewritten_sentences: list[str] = Field(
+        ..., description="Improved versions of each unclear sentence (same order)"
+    )
+    reasoning: list[str] = Field(
+        ..., description="Why each sentence was unclear (same order)"
+    )
+
+
+class AdversarialInputs(BaseModel):
+    """Generated adversarial inputs that may break a prompt."""
+
+    adversarial_cases: list[str] = Field(
+        ..., description="Adversarial inputs designed to break the prompt"
+    )
+    failure_modes: list[str] = Field(
+        ..., description="Expected failure mode for each adversarial input"
+    )
+    hardening_suggestions: list[str] = Field(
+        ..., description="Suggestions to harden the prompt against these failures"
+    )

@@ -23,6 +23,9 @@ class Component(Enum):
     EVALUATOR = "📊 Evaluator"
     META_OPTIMIZER = "🔧 Meta-Optimizer"
     FEW_SHOT_OPTIMIZER = "📝 Few-Shot"
+    ADVERSARIAL_OPTIMIZER = "⚔️ Adversarial"
+    EXAMPLE_AUGMENTOR = "📚 Example-Augmentor"
+    CLARITY_REWRITER = "✨ Clarity-Rewriter"
     LLM = "🤖 LLM"
 
 

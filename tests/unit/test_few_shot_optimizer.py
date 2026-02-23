@@ -14,14 +14,12 @@ class TestOptimizerImports:
             ScoredExample,
             SelectionResult,
             format_examples,
-            get_default_model,
             select_examples,
         )
         assert select_examples is not None
         assert format_examples is not None
         assert ScoredExample is not None
         assert SelectionResult is not None
-        assert get_default_model is not None
 
     def test_server_module_imports(self):
         """Test MCP server module imports."""
@@ -33,17 +31,6 @@ class TestOptimizerImports:
         assert mcp is not None
         assert select_optimal_examples is not None
         assert format_example_set is not None
-
-
-class TestGetDefaultModel:
-    """Test model configuration."""
-
-    def test_returns_string(self):
-        """get_default_model should return a string."""
-        from mcp_servers.few_shot_optimizer.optimizer import get_default_model
-        result = get_default_model()
-        assert isinstance(result, str)
-        assert len(result) > 0
 
 
 class TestFormatExamples:

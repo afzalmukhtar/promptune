@@ -11,13 +11,11 @@ class TestOptimizerImports:
         from mcp_servers.meta_prompt_optimizer.optimizer import (
             OptimizationResult,
             OptimizedCandidate,
-            get_default_model,
             optimize,
         )
         assert optimize is not None
         assert OptimizedCandidate is not None
         assert OptimizationResult is not None
-        assert get_default_model is not None
 
     def test_server_module_imports(self):
         """Test MCP server module imports."""
@@ -27,17 +25,6 @@ class TestOptimizerImports:
         )
         assert mcp is not None
         assert generate_candidates is not None
-
-
-class TestGetDefaultModel:
-    """Test model configuration."""
-
-    def test_returns_string(self):
-        """get_default_model should return a string."""
-        from mcp_servers.meta_prompt_optimizer.optimizer import get_default_model
-        result = get_default_model()
-        assert isinstance(result, str)
-        assert len(result) > 0
 
 
 class TestOptimizedCandidate:

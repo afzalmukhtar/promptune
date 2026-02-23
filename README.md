@@ -31,35 +31,40 @@ flowchart LR
 
 **Key differentiators:**
 
-- **Empirical testing** - Actually runs your prompt, compares output to expected
-- **Multi-strategy optimization** - Meta-prompt rewriting + few-shot selection
-- **LLM-agnostic** - Works with OpenAI, Azure, Anthropic, Ollama, or any LiteLLM model
-- **Extensible** - Add your own domain-specific optimizers
-- **Black-box support** - Optimize prompts for RAG pipelines, retrievers, or any custom system
+- **Empirical testing** — Runs your prompt against real examples, compares output to expected
+- **5 optimization strategies** — Meta-prompt rewriting, few-shot selection, adversarial hardening, example augmentation, clarity rewriting
+- **Negative examples** — Teach what to AVOID with "bad output + reason why bad" pairs
+- **Prompt understanding** — Analyzes which prompt sections the LLM follows vs ignores
+- **3 model roles** — Separate target, tuner, and judge models for cost/quality control
+- **LLM-agnostic** — Works with OpenAI, Azure, Anthropic, Ollama, or any LiteLLM model
+- **Black-box support** — Optimize prompts for RAG pipelines, retrievers, or any custom system
 
 ## How It Works
 
 ```mermaid
 flowchart TB
-    INPUT[Your Prompt + Examples] --> EVAL
+    INPUT["Your Prompt + Examples<br/>(positive + negative)"] --> EVAL
 
     subgraph LOOP["Optimization Loop"]
-        EVAL[Evaluate]
-        GEN[Generate Variants]
-        SELECT[Select Top-K]
+        EVAL[Evaluate with Judge Model]
+        GEN[Generate Variants with Tuner Model]
+        SELECT[Select Top-K Beam]
         EVAL --> GEN --> SELECT --> EVAL
     end
 
-    subgraph EVAL_DETAIL["Evaluation 3-Part Scoring"]
-        E1["Empirical 50%<br/>Run prompt, compare outputs"]
-        E2["Structural 30%<br/>Check role, format, constraints"]
-        E3["Adversarial 20%<br/>Find hidden weaknesses"]
+    subgraph EVAL_DETAIL["Evaluation"]
+        E1["Empirical 50%<br/>Run on Target Model"]
+        E2["Structural 30%<br/>Prompt Analysis"]
+        E3["Adversarial 20%<br/>Find Weaknesses"]
+        E4["Prompt Understanding<br/>Section Compliance"]
     end
 
-    subgraph OPT["Optimizers"]
-        O1[Meta-Prompt<br/>Rewrite based on feedback]
+    subgraph OPT["5 Optimizers"]
+        O1[Meta-Prompt<br/>Rewrite from feedback]
         O2[Few-Shot<br/>Select best examples]
-        O3[Your Custom<br/>Domain-specific]
+        O3[Adversarial<br/>Harden edge cases]
+        O4[Example Augmentor<br/>DO/DON'T sections]
+        O5[Clarity Rewriter<br/>Fix ambiguity]
     end
 
     EVAL -.-> EVAL_DETAIL
@@ -72,36 +77,71 @@ flowchart TB
 
 ## Quick Start
 
+### 1. Create `promptune.yaml`
+
+```yaml
+models:
+  target: "azure/gpt-4o-mini"    # Model the prompt runs on
+  tuner: "azure/gpt-4o"          # Generates improved prompts
+  judge: "azure/gpt-4o-mini"     # Scores outputs
+
+optimization:
+  beam_width: 3
+  max_iterations: 10
+  target_score: 0.90
+  batch_size: 5
+  optimizers:
+    - meta_prompt
+    - few_shot
+    - adversarial
+    - example_augmentor
+    - clarity_rewriter
+```
+
+### 2. Create `.env` with your API keys
+
+```bash
+AZURE_OPENAI_API_KEY=your-key
+AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
+# Or: OPENAI_API_KEY=your-key
+# Or: OLLAMA_API_BASE=http://localhost:11434
+```
+
+### 3. Run optimization
+
+```bash
+# With included datasets
+python test_promptune.py --data datasets/code_assistant.json
+
+# With custom config and data
+python test_promptune.py --config myconfig.yaml --data my_examples.json
+
+# Override settings via CLI
+python test_promptune.py --data data.json --beam 5 --target 0.95 --batch-size 10
+
+# Pick specific optimizers
+python test_promptune.py --data data.json --optimizers meta_prompt adversarial
+
+# Run until convergence
+python test_promptune.py --data data.json --converge
+```
+
+### Python API
+
 ```python
 import asyncio
-from mcp_servers.beam_orchestrator.orchestrator import BeamConfig, optimize_beam
-from schemas import TrainingExample
+from mcp_servers.beam_orchestrator.orchestrator import optimize_beam
+from mcp_servers.utils.config import load_config
+from mcp_servers.utils.data_loader import load_dataset
 
 async def main():
-    # Define what good output looks like
-    examples = [
-        TrainingExample(
-            input="Write hello world in Python",
-            expected_output="print('Hello, World!')",
-        ),
-        TrainingExample(
-            input="Write a function to add two numbers",
-            expected_output="def add(a, b):\n    return a + b",
-        ),
-    ]
+    config = load_config("promptune.yaml")
+    dataset = load_dataset("datasets/code_assistant.json")
 
-    # Configure optimization
-    config = BeamConfig(
-        beam_width=3,           # Keep top 3 candidates per iteration
-        max_iterations=10,      # Max optimization rounds
-        target_score=0.90,      # Stop when 90% score reached
-        optimizers=["meta_prompt", "few_shot"],
-    )
-
-    # Run optimization
     result = await optimize_beam(
         initial_prompt="You are a coding assistant.",
-        training_examples=examples,
+        training_examples=dataset.examples,
+        negative_examples=dataset.negative_examples or None,
         config=config,
     )
 
@@ -111,6 +151,43 @@ async def main():
 asyncio.run(main())
 ```
 
+## Training Data Format
+
+### Positive examples (JSON)
+
+```json
+[
+  {"input": "Write hello world", "expected_output": "print('Hello, World!')"},
+  {"input": "Add two numbers", "expected_output": "def add(a, b): return a + b"}
+]
+```
+
+### With negative examples (same file)
+
+```json
+[
+  {"input": "Write hello world", "expected_output": "print('Hello, World!')"},
+  {
+    "sample_prompt": "You are a code assistant.",
+    "input": "Write hello world",
+    "bad_output": "Hello World",
+    "reason_why_bad": "Not valid Python code, just plain text"
+  }
+]
+```
+
+CSV format is also supported with the same column names.
+
+## Included Datasets
+
+| Dataset | Examples | Negatives | Use Case |
+|---------|----------|-----------|----------|
+| `code_assistant.json` | 51 | 0 | Python code generation |
+| `text_summarizer.json` | 51 | 0 | News/text summarization |
+| `sentiment_classifier.json` | 52 | 0 | Sentiment analysis (pos/neg/neutral) |
+| `email_writer_with_negatives.json` | 25 | 21 | Professional email writing |
+| `math_tutor.json` | 52 | 0 | Math problem solving |
+
 ## Custom Evaluation Targets
 
 Optimize prompts for any black-box system, not just LLMs:
@@ -119,80 +196,51 @@ Optimize prompts for any black-box system, not just LLMs:
 from mcp_servers.targets.base import BaseTarget
 
 class MyRAGPipeline(BaseTarget):
-    """Optimize prompts for your retrieval system."""
-    
     async def invoke(self, prompt: str, input_text: str) -> str:
-        # Your custom logic here
         rewritten_query = await self.rewrite(prompt, input_text)
         documents = await self.retrieve(rewritten_query)
         return self.format_response(documents)
 
-# Use it
 result = await optimize_beam(
     initial_prompt="Rewrite queries for better retrieval.",
     training_examples=examples,
-    target=MyRAGPipeline(),  # Your custom target
+    target=MyRAGPipeline(),
 )
 ```
 
-## Add Your Own Optimizer
+## The 5 Optimizers
 
-Create domain-specific optimizers for specialized prompting techniques:
-
-```python
-# mcp_servers/my_optimizer/optimizer.py
-async def optimize(prompt: str, feedback: dict, **kwargs) -> OptimizationResult:
-    # Your domain-specific optimization logic
-    # e.g., chain-of-thought injection, legal document formatting, etc.
-    ...
-```
-
-Then add it to the config:
-
-```python
-config = BeamConfig(
-    optimizers=["meta_prompt", "few_shot", "my_optimizer"],
-)
-```
-
-## CLI Usage
-
-```bash
-# Basic optimization
-python test_promptune.py --prompt "You are a helpful assistant."
-
-# Run until convergence
-python test_promptune.py --converge
-
-# Custom target score
-python test_promptune.py --target 0.95
-
-# Minimal output
-python test_promptune.py --quiet
-```
+| Optimizer | What It Does |
+|-----------|-------------|
+| **meta_prompt** | Rewrites the prompt based on evaluation feedback and prompt understanding analysis |
+| **few_shot** | Selects and formats the best few-shot examples using relevance, diversity, and complexity scoring |
+| **adversarial** | Generates edge-case inputs that break the prompt, then hardens it against those failures |
+| **example_augmentor** | Injects DO/DON'T sections using positive and negative training examples |
+| **clarity_rewriter** | Identifies ambiguous instructions and rewrites them for precision |
 
 ## Architecture
 
-Promptune uses a **Skills + MCP** architecture:
-
-- **Skills** (Markdown): Define WHEN and HOW to use each capability
-- **MCP Servers** (Python): Provide executable tools
-
 ```
 promptune/
-├── skills/                    # Skill definitions (markdown)
-│   ├── evaluator/
-│   ├── meta_prompt_optimizer/
-│   ├── few_shot_optimizer/
-│   └── beam_orchestrator/
-├── mcp_servers/               # MCP server implementations
-│   ├── evaluator/
-│   ├── meta_prompt_optimizer/
-│   ├── few_shot_optimizer/
-│   ├── beam_orchestrator/
-│   └── targets/               # Custom target support
-├── schemas/                   # Shared data models
-└── tests/                     # Test suite
+├── promptune.yaml                # Config: models + optimization params
+├── .env                          # API keys
+├── datasets/                     # Training datasets (JSON/CSV)
+├── mcp_servers/
+│   ├── evaluator/                # 3-part scoring + prompt understanding
+│   ├── meta_prompt_optimizer/    # Feedback-driven rewriting
+│   ├── few_shot_optimizer/       # Example selection & formatting
+│   ├── adversarial_optimizer/    # Edge-case hardening
+│   ├── example_augmentor/        # DO/DON'T injection
+│   ├── clarity_rewriter/         # Ambiguity resolution
+│   ├── beam_orchestrator/        # Beam search coordination
+│   ├── targets/                  # Custom evaluation targets
+│   └── utils/
+│       ├── config.py             # YAML config system
+│       ├── llm.py                # Structured LLM calls (Pydantic)
+│       ├── data_loader.py        # Auto-infer JSON/CSV loader
+│       └── logger.py             # Component-aware logging
+├── schemas/                      # Shared Pydantic models
+└── tests/                        # Unit + integration tests
 ```
 
 ## Installation
@@ -201,27 +249,14 @@ promptune/
 pip install -e ".[dev]"
 ```
 
-## Configuration
-
-Set your LLM credentials in `.env`:
-
-```bash
-# Azure OpenAI
-AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-key
-AZURE_OPENAI_API_VERSION=2024-02-15-preview
-AZURE_OPENAI_MODEL=gpt-4o-mini
-
-# Or Ollama (local)
-OLLAMA_API_BASE=http://localhost:11434
-```
-
 ## Development
 
 ```bash
 # Run tests
-pytest
+pytest -v
 
+# Lint
+ruff check .
 ```
 
 ## License

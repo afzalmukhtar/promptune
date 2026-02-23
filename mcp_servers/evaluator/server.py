@@ -7,6 +7,7 @@ Provides tools for evaluating prompts against training data using LLM-as-judge.
 from fastmcp import FastMCP
 
 from mcp_servers.evaluator.evaluator import evaluate_prompt
+from mcp_servers.utils.config import load_config
 from schemas import EvaluationResult, TrainingExample
 
 mcp = FastMCP("evaluator")
@@ -16,7 +17,7 @@ mcp = FastMCP("evaluator")
 async def evaluate(
     prompt: str,
     training_examples: list[dict],
-    model: str | None = None,
+    config_path: str | None = None,
 ) -> dict:
     """
     Evaluate a prompt against training examples.
@@ -24,22 +25,20 @@ async def evaluate(
     Args:
         prompt: The prompt text to evaluate
         training_examples: List of {input, expected_output} pairs
-        model: Optional model override (default: uses env config)
+        config_path: Path to promptune.yaml (default: 'promptune.yaml')
 
     Returns:
         EvaluationResult as dict with score, feedback, strengths, weaknesses
     """
-    # Convert dicts to TrainingExample models
+    config = load_config(config_path)
     examples = [TrainingExample(**ex) for ex in training_examples]
 
-    # Call core evaluation logic
     result: EvaluationResult = await evaluate_prompt(
         prompt=prompt,
         training_examples=examples,
-        model=model,
+        config=config,
     )
 
-    # Return as dict for MCP serialization
     return result.model_dump()
 
 

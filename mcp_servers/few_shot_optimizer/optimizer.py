@@ -2,18 +2,13 @@
 Few-Shot Optimizer - Intelligent example selection and ordering.
 
 Selects optimal few-shot examples balancing relevance and diversity.
+Uses tuner model from PromptuneConfig via call_llm_structured.
 """
 
-import json
-import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
-from litellm import acompletion
-
-from schemas import TrainingExample
-
-load_dotenv()
+from mcp_servers.utils.llm import call_llm_structured
+from schemas import ExampleScores, TrainingExample
 
 
 @dataclass
@@ -32,18 +27,6 @@ class SelectionResult:
     selected_examples: list[ScoredExample]
     prompt_with_examples: str
     selection_reasoning: str
-
-
-def get_default_model() -> str:
-    """Get the default model from environment variables."""
-    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    azure_model = os.getenv("AZURE_OPENAI_MODEL")
-    if azure_endpoint and azure_model:
-        return f"azure/{azure_model}"
-    ollama_base = os.getenv("OLLAMA_API_BASE")
-    if ollama_base:
-        return "ollama/llama3.2"
-    return "gpt-4o-mini"
 
 
 SCORING_PROMPT = """You are an expert at selecting few-shot examples for prompts.
@@ -71,16 +54,6 @@ Score each example on three dimensions (0.0 to 1.0):
    - 1.0 = Very complex (long input, multiple steps, edge cases)
    - 0.5 = Medium complexity
    - 0.0 = Very simple (short, straightforward)
-
-## OUTPUT FORMAT:
-```json
-{{
-  "scores": [
-    {{"index": 0, "relevance": 0.9, "diversity": 0.3, "complexity": 0.2}},
-    {{"index": 1, "relevance": 0.8, "diversity": 0.7, "complexity": 0.5}}
-  ]
-}}
-```
 
 Score ALL examples. Be precise with scores."""
 
@@ -193,17 +166,18 @@ async def _score_examples_with_llm(
         examples=examples_text,
     )
 
-    response = await acompletion(
-        model=model,
-        messages=[{"role": "user", "content": scoring_input}],
-        response_format={"type": "json_object"},
-        temperature=0.0,
-    )
-
     try:
-        data = json.loads(response.choices[0].message.content)
-        return data.get("scores", [])
-    except json.JSONDecodeError:
+        result = await call_llm_structured(
+            model=model,
+            messages=[{"role": "user", "content": scoring_input}],
+            response_model=ExampleScores,
+            temperature=0.0,
+        )
+        return [
+            {"index": s.index, "relevance": s.relevance, "diversity": s.diversity, "complexity": s.complexity}
+            for s in result.scores
+        ]
+    except Exception:
         # Return neutral scores on failure
         return [
             {"index": i, "relevance": 0.5, "diversity": 0.5, "complexity": 0.5}
@@ -226,12 +200,13 @@ async def select_examples(
         example_pool: Pool of candidate examples
         num_examples: Number of examples to select
         strategy: Selection strategy (balanced, relevant, diverse, simple_first)
-        model: Model to use for scoring
+        model: Tuner model to use for scoring (from config)
 
     Returns:
         SelectionResult with selected examples and formatted prompt
     """
-    model = model or get_default_model()
+    if not model:
+        raise ValueError("Model is required. Pass the tuner model from PromptuneConfig.")
 
     if len(example_pool) <= num_examples:
         # Just use all examples if pool is small

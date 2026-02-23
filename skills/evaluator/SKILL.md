@@ -142,15 +142,37 @@ for consistent coding assistance.
 
 **Key insight**: The prompt *works* for simple cases (75% empirical) but lacks structure for reliability.
 
-## Model Configuration
+## Prompt Understanding Analysis
 
-Uses LiteLLM for model flexibility:
+The evaluator now produces a **PromptUnderstanding** analysis showing which prompt sections the target LLM followed vs ignored:
 
-**Azure OpenAI**:
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_API_VERSION`
-- `AZURE_OPENAI_MODEL`
+```json
+{
+  "well_followed": [
+    {"section": "Role definition", "evidence": "Acted as coding assistant", "score": 0.9}
+  ],
+  "poorly_followed": [
+    {"section": "Output format", "evidence": "Did not use markdown", "score": 0.3, "reason": "Format spec was ambiguous"}
+  ],
+  "overall_compliance": 0.6
+}
+```
 
-**Ollama**:
-- `OLLAMA_API_BASE` (default: http://localhost:11434)
+This analysis is passed to the **meta_prompt**, **adversarial**, and **clarity_rewriter** optimizers to target improvements.
+
+## Configuration
+
+Uses the **target** model (runs the prompt) and **judge** model (scores outputs) from `promptune.yaml`:
+
+```yaml
+models:
+  target: "azure/gpt-4o-mini"   # Runs the prompt against inputs
+  judge: "azure/gpt-4o-mini"    # Scores outputs, analyzes understanding
+```
+
+Random batch sampling is controlled by `batch_size`:
+
+```yaml
+optimization:
+  batch_size: 5   # Examples evaluated per iteration
+```
