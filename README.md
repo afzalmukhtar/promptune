@@ -6,27 +6,18 @@ Your prompt works on GPT-4 but breaks on Claude? Promptune finds what works for 
 
 ## What Makes Promptune Different
 
-```mermaid
-flowchart LR
-    subgraph Traditional["Traditional Approach"]
-        direction TB
-        T1[Write Prompt] --> T2[Test Manually]
-        T2 --> T3[Tweak & Repeat]
-        T3 --> T2
-    end
-
-    subgraph Promptune["Promptune Approach"]
-        direction TB
-        P1[Provide Examples] --> P2[Beam Search]
-        P2 --> P3[Evaluate + Optimize]
-        P3 --> P4[Converge to Best]
-    end
-
-    Traditional -.->|"Hours of guessing"| Result1[Maybe Good?]
-    Promptune -.->|"Automated iteration"| Result2[Optimized Prompt]
-
-    style Promptune fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
-    style Result2 fill:#C8E6C9,stroke:#4CAF50
+```
+❌ Traditional                        ✅ Promptune
+─────────────                        ──────────
+Write prompt                         Provide examples
+    ↓                                    ↓
+Test manually                        Beam search optimizes
+    ↓                                    ↓
+Tweak & guess                        Evaluate + iterate
+    ↓                                    ↓
+Repeat for hours                     Converge to best
+    ↓                                    ↓
+Maybe good?                          Optimized prompt ✓
 ```
 
 **Key differentiators:**
@@ -42,38 +33,25 @@ flowchart LR
 ## How It Works
 
 ```mermaid
-flowchart TB
-    INPUT["Your Prompt + Examples<br/>(positive + negative)"] --> EVAL
+flowchart LR
+    A["Your Prompt\n+ Examples"] --> B["Evaluate"]
+    B --> C["Generate\nVariants"]
+    C --> D["Select\nTop-K"]
+    D -->|"repeat"| B
+    D --> E["✓ Optimized\nPrompt"]
 
-    subgraph LOOP["Optimization Loop"]
-        EVAL[Evaluate with Judge Model]
-        GEN[Generate Variants with Tuner Model]
-        SELECT[Select Top-K Beam]
-        EVAL --> GEN --> SELECT --> EVAL
-    end
-
-    subgraph EVAL_DETAIL["Evaluation"]
-        E1["Empirical 50%<br/>Run on Target Model"]
-        E2["Structural 30%<br/>Prompt Analysis"]
-        E3["Adversarial 20%<br/>Find Weaknesses"]
-        E4["Prompt Understanding<br/>Section Compliance"]
-    end
-
-    subgraph OPT["5 Optimizers"]
-        O1[Meta-Prompt<br/>Rewrite from feedback]
-        O2[Few-Shot<br/>Select best examples]
-        O3[Adversarial<br/>Harden edge cases]
-        O4[Example Augmentor<br/>DO/DON'T sections]
-        O5[Clarity Rewriter<br/>Fix ambiguity]
-    end
-
-    EVAL -.-> EVAL_DETAIL
-    GEN -.-> OPT
-    SELECT --> OUTPUT[Optimized Prompt]
-
-    style LOOP fill:#E3F2FD,stroke:#2196F3,stroke-width:2px
-    style OUTPUT fill:#C8E6C9,stroke:#4CAF50,stroke-width:2px
+    style A fill:#f5f5f5,stroke:#999
+    style B fill:#E3F2FD,stroke:#2196F3
+    style C fill:#FFF3E0,stroke:#FF9800
+    style D fill:#F3E5F5,stroke:#9C27B0
+    style E fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
 ```
+
+| Step | What Happens | Model Used |
+|------|-------------|------------|
+| **Evaluate** | Empirical testing (50%) + Structural analysis (30%) + Adversarial critique (20%) | Target + Judge |
+| **Generate** | 5 optimizers create improved variants from feedback | Tuner |
+| **Select** | Keep top-K candidates by score (beam search) | — |
 
 ## Quick Start
 
