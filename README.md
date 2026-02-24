@@ -32,20 +32,9 @@ Maybe good?                          Optimized prompt ✓
 
 ## How It Works
 
-```mermaid
-flowchart LR
-    A["Your Prompt\n+ Examples"] --> B["Evaluate"]
-    B --> C["Generate\nVariants"]
-    C --> D["Select\nTop-K"]
-    D -->|"repeat"| B
-    D --> E["✓ Optimized\nPrompt"]
-
-    style A fill:#f5f5f5,stroke:#999
-    style B fill:#E3F2FD,stroke:#2196F3
-    style C fill:#FFF3E0,stroke:#FF9800
-    style D fill:#F3E5F5,stroke:#9C27B0
-    style E fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
-```
+<p align="center">
+  <img src="assets/how-it-works.svg" alt="How Promptune Works" width="850"/>
+</p>
 
 | Step | What Happens | Model Used |
 |------|-------------|------------|
